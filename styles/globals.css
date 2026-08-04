@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --p: #0f2a47;
+    --pd: #0a1d33;
+    --tint: #eaf0f7;
+    --ok: #0e9c6c;
+    --ok-tint: #e6f5ef;
+    --warn: #b47500;
+    --warn-tint: #fcf2df;
+    --bad: #c93b3b;
+    --bad-tint: #faebeb;
+    --ink: #151a21;
+    --mut: #6e7683;
+    --line: #e5e8ed;
+    --bg: #f4f5f7;
+    --radius: 0.9rem;
+  }
+
+  :root[data-theme="green"] {
+    --p: #12402f;
+    --pd: #0b2c20;
+    --tint: #e8f1ec;
+  }
+
+  :root[data-theme="teal"] {
+    --p: #0e3a46;
+    --pd: #092832;
+    --tint: #e6f0f3;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--p);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--pd);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="420" viewBox="0 0 320 420">
+  <defs>
+    <pattern id="s" width="16" height="16" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#f7f8fa"></rect>
+      <rect width="8" height="16" fill="#f1f3f6"></rect>
+    </pattern>
+  </defs>
+  <rect width="320" height="420" rx="14" fill="url(#s)" stroke="#e5e8ed"></rect>
+  <text x="160" y="214" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#6e7683">payment screenshot</text>
+</svg>
