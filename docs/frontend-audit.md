@@ -101,6 +101,18 @@ Beyond formatting, three fixes touched five source files:
 Everything else in the diff is Prettier's first pass over the codebase (`printWidth: 90`,
 `endOfLine: "lf"`), plus a `.gitattributes` that keeps the repository on LF.
 
+That claim is checkable. Export the baseline, format it with the same Prettier config, and
+diff it against the working tree: only the four files above under `app/`, `components/`
+and `lib/` come back as different, and `tailwind.config.ts` outside them.
+
+```bash
+git archive baseline-export | tar -x -C /tmp/baseline
+cp .prettierrc.json .prettierignore /tmp/baseline/
+npx prettier --write "/tmp/baseline/{app,components,lib}/**/*.{ts,tsx}" "/tmp/baseline/styles/*.css"
+diff -rq /tmp/baseline/app app; diff -rq /tmp/baseline/components components
+diff -rq /tmp/baseline/lib lib; diff -rq /tmp/baseline/styles styles
+```
+
 ## 6. Remaining mock and demo dependencies
 
 Nothing in this list was fixed during stabilization. Each is real work for a later
