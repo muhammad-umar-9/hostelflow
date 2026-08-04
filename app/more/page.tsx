@@ -8,13 +8,29 @@ import { RoleSwitcher } from "@/components/layout/role-switcher";
 import { DemoResetButton } from "@/components/layout/demo-reset-button";
 
 const ITEMS = [
-  { href: "/enquiries", title: "Walk-in enquiries", description: "Leads, visits and held beds" },
-  { href: "/police-verification", title: "Police verification", description: "Track forms and submissions" },
+  {
+    href: "/enquiries",
+    title: "Walk-in enquiries",
+    description: "Leads, visits and held beds",
+  },
+  {
+    href: "/police-verification",
+    title: "Police verification",
+    description: "Track forms and submissions",
+  },
   { href: "/payments/proofs", title: "Payment proofs", description: "Approval queue" },
   { href: "/receipts", title: "Receipts", description: "Every receipt generated" },
   { href: "/notifications", title: "Notifications", description: "Alerts and reminders" },
-  { href: "/settings", title: "Settings", description: "Hostel, rooms, rent and payments" },
-  { href: "/login", title: "Switch role / log out", description: "Back to the demo login" },
+  {
+    href: "/settings",
+    title: "Settings",
+    description: "Hostel, rooms, rent and payments",
+  },
+  {
+    href: "/login",
+    title: "Switch role / log out",
+    description: "Back to the demo login",
+  },
 ];
 
 export default function MorePage() {
@@ -31,7 +47,9 @@ export default function MorePage() {
             >
               <span className="flex-1">
                 <span className="block text-[13.5px] font-bold">{item.title}</span>
-                <span className="mt-0.5 block text-[11.5px] text-mut">{item.description}</span>
+                <span className="mt-0.5 block text-[11.5px] text-mut">
+                  {item.description}
+                </span>
               </span>
               <ChevronRight className="h-4 w-4 text-[#b6bcc6]" />
             </Link>

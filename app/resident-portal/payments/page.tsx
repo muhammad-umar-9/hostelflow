@@ -70,10 +70,16 @@ export default function ResidentPaymentsPage() {
                 className="flex items-center gap-2.5 rounded-2xl border border-line bg-white p-3.5"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-bold">{receipt.purpose}</span>
-                  <span className="mt-0.5 block text-[11px] text-mut">{receipt.date}</span>
+                  <span className="block truncate text-[12.5px] font-bold">
+                    {receipt.purpose}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-mut">
+                    {receipt.date}
+                  </span>
                 </span>
-                <span className="text-[13px] font-extrabold">{formatPKR(receipt.total)}</span>
+                <span className="text-[13px] font-extrabold">
+                  {formatPKR(receipt.total)}
+                </span>
               </Link>
             ))}
           </div>

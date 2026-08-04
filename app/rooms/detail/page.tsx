@@ -50,7 +50,9 @@ function RoomDetailPageContent() {
       <div className="flex flex-col gap-4">
         <PageHeader
           title={"Room " + room.no}
-          subtitle={room.floor + " · " + (room.type === 4 ? "Four-seater" : "Three-seater")}
+          subtitle={
+            room.floor + " · " + (room.type === 4 ? "Four-seater" : "Three-seater")
+          }
           backHref="/rooms"
         />
 
@@ -72,7 +74,9 @@ function RoomDetailPageContent() {
         <h2 className="text-[13px] font-extrabold">Bed layout</h2>
         <div className="flex flex-col gap-2.5">
           {room.beds.map((bed) => {
-            const resident = bed.residentId ? getResident(data, bed.residentId) : undefined;
+            const resident = bed.residentId
+              ? getResident(data, bed.residentId)
+              : undefined;
             const className =
               "flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3.5 text-left transition hover:border-p/40";
             const body = (
@@ -130,8 +134,8 @@ function RoomDetailPageContent() {
           })}
         </div>
         <p className="text-[11.5px] leading-relaxed text-mut">
-          Tap an occupied bed to open the resident. Tap a vacant, held or maintenance bed for
-          allocation options.
+          Tap an occupied bed to open the resident. Tap a vacant, held or maintenance bed
+          for allocation options.
         </p>
       </div>
 

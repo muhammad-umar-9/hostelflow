@@ -1,37 +1,17 @@
 export type Role = "owner" | "manager" | "resident";
 
-export type BedState =
-  | "vacant"
-  | "occupied"
-  | "held"
-  | "maintenance"
-  | "checkout";
+export type BedState = "vacant" | "occupied" | "held" | "maintenance" | "checkout";
 
 export type PoliceStage =
-  | "not_started"
-  | "incomplete"
-  | "prepared"
-  | "submitted"
-  | "verified"
-  | "rejected";
+  "not_started" | "incomplete" | "prepared" | "submitted" | "verified" | "rejected";
 
 export type InvoiceStatus =
-  | "paid"
-  | "unpaid"
-  | "overdue"
-  | "partial"
-  | "proof"
-  | "waived";
+  "paid" | "unpaid" | "overdue" | "partial" | "proof" | "waived";
 
 export type PaymentMethod = "Cash" | "Bank Transfer" | "JazzCash" | "Easypaisa";
 
 export type EnquiryStatus =
-  | "New"
-  | "Visit Scheduled"
-  | "Visited"
-  | "Bed Held"
-  | "Admitted"
-  | "Lost";
+  "New" | "Visit Scheduled" | "Visited" | "Bed Held" | "Admitted" | "Lost";
 
 export interface Bed {
   id: string;

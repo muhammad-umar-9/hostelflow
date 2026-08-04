@@ -74,7 +74,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   return (
     <div className="flex justify-between gap-3">
       <dt className="font-semibold text-mut">{label}</dt>
-      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>{value}</dd>
+      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>
+        {value}
+      </dd>
     </div>
   );
 }

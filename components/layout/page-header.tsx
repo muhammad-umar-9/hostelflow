@@ -58,7 +58,9 @@ export function PageHeader({
         ) : null}
         <div>
           <h1 className="text-xl font-extrabold tracking-tight">{title}</h1>
-          {subtitle ? <p className="mt-0.5 text-[11.5px] font-semibold text-mut">{subtitle}</p> : null}
+          {subtitle ? (
+            <p className="mt-0.5 text-[11.5px] font-semibold text-mut">{subtitle}</p>
+          ) : null}
           {urdu ? (
             <p className="mt-1 font-urdu text-[10px] leading-[2.2] text-mut">{urdu}</p>
           ) : null}

@@ -3,12 +3,7 @@
 import * as React from "react";
 import { useHostel } from "@/components/providers/hostel-provider";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { formatPKR } from "@/lib/formatters";
 import { getInvoice, getResident } from "@/lib/mock-data/selectors";
 
@@ -37,9 +32,17 @@ export function ReminderDialog({
     ? [
         "Assalam o Alaikum " + first.name + ",",
         "",
-        "Your rent for August 2026 at " + data.settings.name + " (Room " + first.room +
-          ", Bed " + first.bed + ") is " + formatPKR(balance) + ", due on " +
-          (invoice ? invoice.dueDate : "") + ".",
+        "Your rent for August 2026 at " +
+          data.settings.name +
+          " (Room " +
+          first.room +
+          ", Bed " +
+          first.bed +
+          ") is " +
+          formatPKR(balance) +
+          ", due on " +
+          (invoice ? invoice.dueDate : "") +
+          ".",
         "",
         "JazzCash: " + data.settings.jazzcash,
         "Easypaisa: " + data.settings.easypaisa,
@@ -52,7 +55,9 @@ export function ReminderDialog({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent>
-        <SheetTitle className="text-base font-extrabold">WhatsApp reminder preview</SheetTitle>
+        <SheetTitle className="text-base font-extrabold">
+          WhatsApp reminder preview
+        </SheetTitle>
         <SheetDescription className="mt-1 text-xs text-mut">
           {residentIds.length} residents selected · each message is personalised
         </SheetDescription>

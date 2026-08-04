@@ -37,7 +37,8 @@ export default function SettingsPage() {
   }
 
   const settings = data.settings;
-  const notEditable = () => toast("Editable in the live app — demo values are fixed here");
+  const notEditable = () =>
+    toast("Editable in the live app — demo values are fixed here");
 
   return (
     <AppShell>
@@ -45,7 +46,11 @@ export default function SettingsPage() {
         <PageHeader title="Settings" backHref="/more" />
 
         <Section title="HOSTEL">
-          <button type="button" onClick={notEditable} className="flex w-full flex-col gap-3 text-left">
+          <button
+            type="button"
+            onClick={notEditable}
+            className="flex w-full flex-col gap-3 text-left"
+          >
             <Row label="Name" value={settings.name} />
             <Row label="Address" value={settings.address} />
             <Row label="Floors" value={String(settings.floors)} />
@@ -54,7 +59,11 @@ export default function SettingsPage() {
         </Section>
 
         <Section title="CHARGES">
-          <button type="button" onClick={notEditable} className="flex w-full flex-col gap-3 text-left">
+          <button
+            type="button"
+            onClick={notEditable}
+            className="flex w-full flex-col gap-3 text-left"
+          >
             <Row label="Three-seater rent" value={formatPKR(settings.rentThreeSeater)} />
             <Row label="Four-seater rent" value={formatPKR(settings.rentFourSeater)} />
             <Row label="Security deposit" value={formatPKR(settings.security)} />
@@ -82,14 +91,20 @@ export default function SettingsPage() {
                 className="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-3.5"
               >
                 <span className="flex-1 text-left text-[12.5px] font-bold">{label}</span>
-                <Badge tone={enabled ? "success" : "neutral"}>{enabled ? "On" : "Off"}</Badge>
+                <Badge tone={enabled ? "success" : "neutral"}>
+                  {enabled ? "On" : "Off"}
+                </Badge>
               </button>
             );
           })}
         </section>
 
         <Section title="PAYMENT DETAILS">
-          <button type="button" onClick={notEditable} className="flex w-full flex-col gap-3 text-left text-xs">
+          <button
+            type="button"
+            onClick={notEditable}
+            className="flex w-full flex-col gap-3 text-left text-xs"
+          >
             <Block label="Bank">{settings.bank}</Block>
             <Block label="JazzCash">{settings.jazzcash}</Block>
             <Block label="Easypaisa">{settings.easypaisa}</Block>

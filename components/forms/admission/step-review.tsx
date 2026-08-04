@@ -50,7 +50,8 @@ export function StepReview({
           Room {room.no} · Bed {state.bedId}
         </p>
         <p className="mt-1 text-xs text-mut">
-          {room.type === 4 ? "Four-seater" : "Three-seater"} · {formatPKR(room.rent)} per month
+          {room.type === 4 ? "Four-seater" : "Three-seater"} · {formatPKR(room.rent)} per
+          month
         </p>
       </Section>
 
@@ -96,8 +97,8 @@ export function StepReview({
           onCheckedChange={(checked) => onConsentChange(checked === true)}
         />
         <span className="text-[12.5px] font-semibold leading-relaxed">
-          The resident has read the hostel rules and agrees to the rent, security deposit and
-          notice terms.
+          The resident has read the hostel rules and agrees to the rent, security deposit
+          and notice terms.
         </span>
       </label>
     </div>

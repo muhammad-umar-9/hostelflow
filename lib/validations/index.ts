@@ -7,9 +7,7 @@ export const personalInfoSchema = z.object({
   name: z.string().min(3, "Enter the full name"),
   cnic: z.string().regex(CNIC_REGEX, "CNIC must look like 35202-1234567-1"),
   dob: z.string().min(4, "Date of birth is required"),
-  phone: z
-    .string()
-    .regex(PHONE_REGEX, "Enter a mobile number like 0301 2345678"),
+  phone: z.string().regex(PHONE_REGEX, "Enter a mobile number like 0301 2345678"),
   address: z.string().min(6, "Permanent address is required"),
   city: z.string().min(2, "City is required"),
   institution: z.string().min(2, "Institution or workplace is required"),
@@ -49,13 +47,7 @@ export const enquirySchema = z.object({
   phone: z.string().regex(PHONE_REGEX, "Enter a valid WhatsApp number"),
   roomType: z.coerce.number().refine((v) => v === 3 || v === 4, "Choose a room type"),
   expectedJoining: z.string().min(4, "Expected joining date is required"),
-  source: z.enum([
-    "Walk-in",
-    "WhatsApp",
-    "Facebook",
-    "Referral",
-    "Property Listing",
-  ]),
+  source: z.enum(["Walk-in", "WhatsApp", "Facebook", "Referral", "Property Listing"]),
   notes: z.string().optional(),
 });
 
@@ -74,4 +66,6 @@ export type PersonalInfoValues = z.infer<typeof personalInfoSchema>;
 export type GuardianValues = z.infer<typeof guardianSchema>;
 export type PaymentValues = z.infer<typeof paymentSchema>;
 export type EnquiryValues = z.infer<typeof enquirySchema>;
+/** Raw form values before Zod coercion — `roomType` arrives from a <select> as a string. */
+export type EnquiryInput = z.input<typeof enquirySchema>;
 export type CheckoutValues = z.infer<typeof checkoutSchema>;

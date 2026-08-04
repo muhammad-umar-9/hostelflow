@@ -35,7 +35,11 @@ export function StepPersonal({
         <Input {...register("name")} placeholder="Zohaib Anwar" />
       </Field>
       <Field label="CNIC / B-Form number" error={errors.cnic?.message}>
-        <Input {...register("cnic")} placeholder="35202-1234567-1" className="font-mono" />
+        <Input
+          {...register("cnic")}
+          placeholder="35202-1234567-1"
+          className="font-mono"
+        />
       </Field>
       <div className="grid grid-cols-2 gap-2.5">
         <Field label="Date of birth" error={errors.dob?.message}>

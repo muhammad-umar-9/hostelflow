@@ -25,13 +25,15 @@ export function StepCharges({
           </div>
           <div className="flex justify-between">
             <dt className="font-semibold">
-              Security deposit <span className="text-[11px] font-bold text-ok">refundable</span>
+              Security deposit{" "}
+              <span className="text-[11px] font-bold text-ok">refundable</span>
             </dt>
             <dd className="font-bold">{formatPKR(settings.security)}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="font-semibold">
-              Police form charge <span className="text-[11px] font-semibold text-mut">one-time</span>
+              Police form charge{" "}
+              <span className="text-[11px] font-semibold text-mut">one-time</span>
             </dt>
             <dd className="font-bold">{formatPKR(settings.policeCharge)}</dd>
           </div>

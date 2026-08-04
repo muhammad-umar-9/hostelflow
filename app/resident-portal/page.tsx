@@ -85,14 +85,21 @@ export default function ResidentHomePage() {
           </div>
         </div>
         <div className="flex items-center justify-between rounded-2xl border border-line bg-white p-3.5">
-          <span className="text-[12.5px] font-semibold text-mut">Security deposit held</span>
-          <span className="text-[15px] font-extrabold">{formatPKR(resident.security)}</span>
+          <span className="text-[12.5px] font-semibold text-mut">
+            Security deposit held
+          </span>
+          <span className="text-[15px] font-extrabold">
+            {formatPKR(resident.security)}
+          </span>
         </div>
 
         <section className="flex flex-col gap-2.5">
           <h2 className="text-[13px] font-extrabold">Notices</h2>
           {data.notices.map((notice) => (
-            <div key={notice.title} className="rounded-2xl border border-line bg-white p-3.5">
+            <div
+              key={notice.title}
+              className="rounded-2xl border border-line bg-white p-3.5"
+            >
               <p className="text-[12.5px] font-bold leading-snug">{notice.title}</p>
               <p className="mt-1 text-[11px] text-mut">{notice.date}</p>
             </div>

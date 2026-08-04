@@ -31,7 +31,11 @@ export default function NotificationsPage() {
               <span
                 className={
                   "mt-1 h-2.5 w-2.5 shrink-0 rounded-full " +
-                  (item.tone === "bad" ? "bg-bad" : item.tone === "warn" ? "bg-warn" : "bg-ok")
+                  (item.tone === "bad"
+                    ? "bg-bad"
+                    : item.tone === "warn"
+                      ? "bg-warn"
+                      : "bg-ok")
                 }
               />
               <div>

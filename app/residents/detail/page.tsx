@@ -38,7 +38,10 @@ function ResidentProfilePageContent() {
   if (!resident) {
     return (
       <AppShell>
-        <EmptyState title="Resident not found" description="This profile is no longer available." />
+        <EmptyState
+          title="Resident not found"
+          description="This profile is no longer available."
+        />
       </AppShell>
     );
   }
@@ -70,7 +73,10 @@ function ResidentProfilePageContent() {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <InvoiceStatusBadge status={invoice ? invoice.status : "paid"} prefix="Rent:" />
+            <InvoiceStatusBadge
+              status={invoice ? invoice.status : "paid"}
+              prefix="Rent:"
+            />
             <PoliceStatusBadge stage={resident.police} prefix="Police:" />
           </div>
           <div className="mt-3 flex gap-2">
@@ -124,7 +130,9 @@ function ResidentProfilePageContent() {
               <Row label="Security held" value={formatPKR(resident.security)} />
               <Row
                 label="Outstanding"
-                value={formatPKR(outstanding) + (invoice ? " · due " + invoice.dueDate : "")}
+                value={
+                  formatPKR(outstanding) + (invoice ? " · due " + invoice.dueDate : "")
+                }
               />
               <div className="h-px bg-line" />
               <Block label="Guardian">
@@ -139,7 +147,9 @@ function ResidentProfilePageContent() {
             <div className="mt-3 grid grid-cols-2 gap-2.5">
               <Button
                 variant="outline"
-                onClick={() => toast("Reminder sent to " + resident.name + " on WhatsApp")}
+                onClick={() =>
+                  toast("Reminder sent to " + resident.name + " on WhatsApp")
+                }
               >
                 Send reminder
               </Button>
@@ -157,19 +167,21 @@ function ResidentProfilePageContent() {
               </Button>
             </div>
             <p className="mt-3 text-[11px] leading-relaxed text-mut">
-              Full CNIC digits are visible only inside this authorised profile. Managers cannot
-              delete financial records.
+              Full CNIC digits are visible only inside this authorised profile. Managers
+              cannot delete financial records.
             </p>
           </TabsContent>
 
           <TabsContent value="documents">
             <div className="flex flex-col gap-2.5">
-              {([
-                ["Resident photograph", resident.documents.photo],
-                ["CNIC / B-Form front", resident.documents.cnicFront],
-                ["CNIC / B-Form back", resident.documents.cnicBack],
-                ["Guardian CNIC", resident.documents.guardianCnic],
-              ] as [string, boolean][]).map(([label, uploaded]) => (
+              {(
+                [
+                  ["Resident photograph", resident.documents.photo],
+                  ["CNIC / B-Form front", resident.documents.cnicFront],
+                  ["CNIC / B-Form back", resident.documents.cnicBack],
+                  ["Guardian CNIC", resident.documents.guardianCnic],
+                ] as [string, boolean][]
+              ).map(([label, uploaded]) => (
                 <div
                   key={label}
                   className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3.5"
@@ -186,7 +198,8 @@ function ResidentProfilePageContent() {
                     <p className="text-[13px] font-bold">{label}</p>
                     <p
                       className={
-                        "mt-0.5 text-[11px] font-bold " + (uploaded ? "text-ok" : "text-bad")
+                        "mt-0.5 text-[11px] font-bold " +
+                        (uploaded ? "text-ok" : "text-bad")
                       }
                     >
                       {uploaded ? "Uploaded" : "Missing"}
@@ -212,10 +225,16 @@ function ResidentProfilePageContent() {
                     className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3.5"
                   >
                     <span className="flex-1">
-                      <span className="block text-[12.5px] font-bold">{receipt.purpose}</span>
-                      <span className="mt-0.5 block text-[11px] text-mut">{receipt.date}</span>
+                      <span className="block text-[12.5px] font-bold">
+                        {receipt.purpose}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-mut">
+                        {receipt.date}
+                      </span>
                     </span>
-                    <span className="text-[13px] font-extrabold">{formatPKR(receipt.total)}</span>
+                    <span className="text-[13px] font-extrabold">
+                      {formatPKR(receipt.total)}
+                    </span>
                   </Link>
                 ))
               )}
@@ -251,7 +270,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   return (
     <div className="flex justify-between gap-3">
       <dt className="font-semibold text-mut">{label}</dt>
-      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>{value}</dd>
+      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>
+        {value}
+      </dd>
     </div>
   );
 }

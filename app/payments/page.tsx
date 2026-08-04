@@ -38,7 +38,8 @@ function PaymentsPageContent() {
   const rows = data.invoices
     .filter((invoice) => {
       if (filter === "all") return true;
-      if (filter === "overdue") return invoice.status === "unpaid" || invoice.status === "overdue";
+      if (filter === "overdue")
+        return invoice.status === "unpaid" || invoice.status === "overdue";
       if (filter === "proof") return invoice.status === "proof";
       if (filter === "partial") return invoice.status === "partial";
       return invoice.status === "paid";
@@ -88,7 +89,9 @@ function PaymentsPageContent() {
             <Button variant="ghost" size="sm" onClick={() => setSelected([])}>
               Clear
             </Button>
-            <span className="text-[11.5px] font-bold text-mut">{selected.length} selected</span>
+            <span className="text-[11.5px] font-bold text-mut">
+              {selected.length} selected
+            </span>
           </div>
         ) : null}
 

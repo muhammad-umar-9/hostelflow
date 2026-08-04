@@ -121,7 +121,11 @@ export function StepPayment({
         <span className="text-xs font-bold text-mut">Payment status</span>
         <Badge
           tone={
-            status === "Verified" ? "success" : status === "Under Review" ? "warning" : "neutral"
+            status === "Verified"
+              ? "success"
+              : status === "Under Review"
+                ? "warning"
+                : "neutral"
           }
         >
           {status}
@@ -132,6 +136,7 @@ export function StepPayment({
 }
 
 export function admissionPaymentStatus(payment: AdmissionPayment) {
-  if (payment.method === "Cash") return payment.cashConfirmed ? "Verified" : "Awaiting Payment";
+  if (payment.method === "Cash")
+    return payment.cashConfirmed ? "Verified" : "Awaiting Payment";
   return payment.proofAttached ? "Under Review" : "Awaiting Payment";
 }

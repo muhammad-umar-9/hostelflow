@@ -32,7 +32,9 @@ export function BottomNav() {
               <span className={cn("text-[10px]", active ? "font-bold" : "font-semibold")}>
                 {item.label}
               </span>
-              <span className="font-urdu text-[8px] leading-[2.1] opacity-75">{item.urdu}</span>
+              <span className="font-urdu text-[8px] leading-[2.1] opacity-75">
+                {item.urdu}
+              </span>
             </Link>
           );
         })}

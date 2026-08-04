@@ -28,7 +28,10 @@ function EnquiryDetailPageContent() {
   if (!enquiry) {
     return (
       <AppShell>
-        <EmptyState title="Enquiry not found" description="This lead is no longer in the list." />
+        <EmptyState
+          title="Enquiry not found"
+          description="This lead is no longer in the list."
+        />
       </AppShell>
     );
   }
@@ -86,7 +89,10 @@ function EnquiryDetailPageContent() {
                 key={entry.room.no}
                 className="flex items-center gap-2.5 rounded-2xl border border-line bg-white p-3.5"
               >
-                <Link href={"/rooms/detail?no=" + entry.room.no} className="min-w-0 flex-1">
+                <Link
+                  href={"/rooms/detail?no=" + entry.room.no}
+                  className="min-w-0 flex-1"
+                >
                   <span className="block text-[13.5px] font-bold">
                     Room {entry.room.no} · Bed {entry.free[0].id}
                   </span>

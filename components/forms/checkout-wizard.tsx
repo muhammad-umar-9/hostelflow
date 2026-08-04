@@ -151,7 +151,9 @@ export function CheckoutWizard({ residentId }: { residentId: string }) {
               checked={hasDamage}
               onCheckedChange={(checked) => setHasDamage(checked === true)}
             />
-            <span className="text-[13px] font-bold">Room or property damage recorded</span>
+            <span className="text-[13px] font-bold">
+              Room or property damage recorded
+            </span>
           </label>
           {hasDamage ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-white p-3.5">
@@ -200,8 +202,8 @@ export function CheckoutWizard({ residentId }: { residentId: string }) {
             </div>
             {refund < 0 ? (
               <p className="rounded-xl bg-badt p-3 text-[11.5px] font-bold leading-relaxed text-bad">
-                Deductions exceed the deposit by {formatPKR(Math.abs(refund))}. Owner approval
-                is required to complete this checkout.
+                Deductions exceed the deposit by {formatPKR(Math.abs(refund))}. Owner
+                approval is required to complete this checkout.
               </p>
             ) : null}
           </dl>

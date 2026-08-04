@@ -3,9 +3,19 @@ import { BedDouble, MessageSquare, UserPlus, Wallet } from "lucide-react";
 
 const ACTIONS = [
   { href: "/admissions/new", label: "Add Resident", urdu: "نیا رہائشی", icon: UserPlus },
-  { href: "/rooms?filter=vacant", label: "Allocate Bed", urdu: "بیڈ دیں", icon: BedDouble },
+  {
+    href: "/rooms?filter=vacant",
+    label: "Allocate Bed",
+    urdu: "بیڈ دیں",
+    icon: BedDouble,
+  },
   { href: "/payments", label: "Record Payment", urdu: "ادائیگی", icon: Wallet },
-  { href: "/payments?filter=overdue", label: "Send Reminders", urdu: "یاد دہانی", icon: MessageSquare },
+  {
+    href: "/payments?filter=overdue",
+    label: "Send Reminders",
+    urdu: "یاد دہانی",
+    icon: MessageSquare,
+  },
 ];
 
 export function QuickActions() {

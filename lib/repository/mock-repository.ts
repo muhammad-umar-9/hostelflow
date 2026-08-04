@@ -1,4 +1,9 @@
-import { CURRENT_DATE, CURRENT_MONTH, MANAGER_NAME, RENT_DUE_DATE } from "@/lib/constants";
+import {
+  CURRENT_DATE,
+  CURRENT_MONTH,
+  MANAGER_NAME,
+  RENT_DUE_DATE,
+} from "@/lib/constants";
 import { formatPKR, initialsOf } from "@/lib/formatters";
 import { generateHostelData } from "@/lib/mock-data";
 import type {
@@ -43,10 +48,16 @@ export class MockHostelRepository implements HostelRepository {
     const bed = room.beds.find((item) => item.id === input.bedId);
     if (!bed) return delay({ data: next, message: "Bed not found" });
     if (bed.state === "occupied") {
-      return delay({ data: next, message: "That bed was just taken. Pick another vacant bed." });
+      return delay({
+        data: next,
+        message: "That bed was just taken. Pick another vacant bed.",
+      });
     }
     if (next.residents.some((r) => r.status === "active" && r.cnic === input.cnic)) {
-      return delay({ data: next, message: "An active resident already exists with this CNIC." });
+      return delay({
+        data: next,
+        message: "An active resident already exists with this CNIC.",
+      });
     }
 
     const id = "R" + next.nextResidentSeq;
@@ -145,21 +156,29 @@ export class MockHostelRepository implements HostelRepository {
     };
     next.receipts.unshift(receipt);
 
-    return delay({
-      data: next,
-      message: "Resident admitted successfully",
-      residentId: id,
-      receiptId: receipt.id,
-    }, 700);
+    return delay(
+      {
+        data: next,
+        message: "Resident admitted successfully",
+        residentId: id,
+        receiptId: receipt.id,
+      },
+      700,
+    );
   }
 
-  async recordCashPayment(data: HostelData, residentId: string, amount: number): Promise<MutationResult> {
+  async recordCashPayment(
+    data: HostelData,
+    residentId: string,
+    amount: number,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const invoice = next.invoices.find(
       (item) => item.residentId === residentId && item.month === CURRENT_MONTH,
     );
     if (!invoice) return delay({ data: next, message: "No invoice for this month" });
-    if (amount <= 0) return delay({ data: next, message: "Enter an amount before recording" });
+    if (amount <= 0)
+      return delay({ data: next, message: "Enter an amount before recording" });
     invoice.received = Math.min(invoice.due, invoice.received + amount);
     invoice.status = invoice.received >= invoice.due ? "paid" : "partial";
     const receipt: Receipt = {
@@ -194,7 +213,11 @@ export class MockHostelRepository implements HostelRepository {
     });
   }
 
-  async approveProof(data: HostelData, proofId: string, amount: number): Promise<MutationResult> {
+  async approveProof(
+    data: HostelData,
+    proofId: string,
+    amount: number,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const proof = next.proofs.find((item) => item.id === proofId);
     if (!proof) return delay({ data: next, message: "Proof not found" });
@@ -233,14 +256,21 @@ export class MockHostelRepository implements HostelRepository {
       date: CURRENT_DATE,
       tone: "ok",
     });
-    return delay({
-      data: next,
-      message: "Payment approved — invoice updated",
-      receiptId: receipt.id,
-    }, 600);
+    return delay(
+      {
+        data: next,
+        message: "Payment approved — invoice updated",
+        receiptId: receipt.id,
+      },
+      600,
+    );
   }
 
-  async rejectProof(data: HostelData, proofId: string, reason: string): Promise<MutationResult> {
+  async rejectProof(
+    data: HostelData,
+    proofId: string,
+    reason: string,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const proof = next.proofs.find((item) => item.id === proofId);
     if (!proof) return delay({ data: next, message: "Proof not found" });
@@ -290,13 +320,21 @@ export class MockHostelRepository implements HostelRepository {
     next.invoices.forEach((invoice) => {
       if (residentIds.includes(invoice.residentId)) invoice.reminded = true;
     });
-    return delay({
-      data: next,
-      message: "Reminders sent to " + residentIds.length + " residents on WhatsApp",
-    }, 620);
+    return delay(
+      {
+        data: next,
+        message: "Reminders sent to " + residentIds.length + " residents on WhatsApp",
+      },
+      620,
+    );
   }
 
-  async setBedState(data: HostelData, roomNo: string, bedId: string, state: BedState): Promise<MutationResult> {
+  async setBedState(
+    data: HostelData,
+    roomNo: string,
+    bedId: string,
+    state: BedState,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const room = next.rooms.find((item) => item.no === roomNo);
     const bed = room ? room.beds.find((item) => item.id === bedId) : undefined;
@@ -316,7 +354,11 @@ export class MockHostelRepository implements HostelRepository {
     return delay({ data: next, message: labels[state] });
   }
 
-  async setPoliceStage(data: HostelData, residentId: string, stage: PoliceStage): Promise<MutationResult> {
+  async setPoliceStage(
+    data: HostelData,
+    residentId: string,
+    stage: PoliceStage,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const resident = next.residents.find((item) => item.id === residentId);
     if (!resident) return delay({ data: next, message: "Resident not found" });
@@ -328,7 +370,11 @@ export class MockHostelRepository implements HostelRepository {
     return delay({ data: next, message: "Police status updated" });
   }
 
-  async setEnquiryStatus(data: HostelData, enquiryId: string, status: EnquiryStatus): Promise<MutationResult> {
+  async setEnquiryStatus(
+    data: HostelData,
+    enquiryId: string,
+    status: EnquiryStatus,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const enquiry = next.enquiries.find((item) => item.id === enquiryId);
     if (!enquiry) return delay({ data: next, message: "Enquiry not found" });
@@ -352,7 +398,11 @@ export class MockHostelRepository implements HostelRepository {
     return delay({ data: next, message: "Enquiry saved" });
   }
 
-  async completeCheckout(data: HostelData, residentId: string, input: CheckoutInput): Promise<MutationResult> {
+  async completeCheckout(
+    data: HostelData,
+    residentId: string,
+    input: CheckoutInput,
+  ): Promise<MutationResult> {
     const next = clone(data);
     const resident = next.residents.find((item) => item.id === residentId);
     if (!resident) return delay({ data: next, message: "Resident not found" });
@@ -394,14 +444,21 @@ export class MockHostelRepository implements HostelRepository {
       kind: "settlement",
     };
     next.receipts.unshift(receipt);
-    return delay({
-      data: next,
-      message: "Checkout complete — bed is vacant again",
-      receiptId: receipt.id,
-    }, 700);
+    return delay(
+      {
+        data: next,
+        message: "Checkout complete — bed is vacant again",
+        receiptId: receipt.id,
+      },
+      700,
+    );
   }
 
-  async addMaintenanceRequest(data: HostelData, residentId: string, title: string): Promise<MutationResult> {
+  async addMaintenanceRequest(
+    data: HostelData,
+    residentId: string,
+    title: string,
+  ): Promise<MutationResult> {
     const next = clone(data);
     next.requests.unshift({
       id: "MR-" + (100 + next.requests.length),
@@ -413,7 +470,10 @@ export class MockHostelRepository implements HostelRepository {
     return delay({ data: next, message: "Maintenance request sent to the manager" });
   }
 
-  async updateSettings(data: HostelData, patch: Partial<HostelSettings>): Promise<MutationResult> {
+  async updateSettings(
+    data: HostelData,
+    patch: Partial<HostelSettings>,
+  ): Promise<MutationResult> {
     const next = clone(data);
     next.settings = { ...next.settings, ...patch };
     return delay({ data: next, message: "Settings updated" });

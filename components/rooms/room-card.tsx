@@ -20,8 +20,8 @@ export function RoomCard({ room }: { room: Room }) {
         </Badge>
       </div>
       <p className="mt-1 text-[11.5px] font-semibold text-mut">
-        {room.type === 4 ? "Four-seater" : "Three-seater"} · {formatPKR(room.rent)} / bed ·{" "}
-        {occupied}/{room.type} occupied
+        {room.type === 4 ? "Four-seater" : "Three-seater"} · {formatPKR(room.rent)} / bed
+        · {occupied}/{room.type} occupied
       </p>
       <div className="mt-2.5 flex gap-1.5">
         {room.beds.map((bed) => (

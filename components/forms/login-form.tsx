@@ -58,7 +58,9 @@ export function LoginForm() {
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl font-extrabold text-p">
           H
         </div>
-        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white">HostelFlow</h1>
+        <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white">
+          HostelFlow
+        </h1>
         <p className="mt-2 text-sm leading-relaxed text-white/70">
           Private hostel management made simple
         </p>
@@ -66,7 +68,9 @@ export function LoginForm() {
           ہاسٹل کا انتظام، آسان طریقے سے
         </p>
 
-        <p className="mt-8 text-xs font-bold tracking-wide text-white/60">MOBILE NUMBER</p>
+        <p className="mt-8 text-xs font-bold tracking-wide text-white/60">
+          MOBILE NUMBER
+        </p>
         <div className="mt-2.5 flex items-center gap-2.5">
           <span className="rounded-xl bg-white/10 px-3 py-3.5 text-[15px] font-semibold text-white">
             +92

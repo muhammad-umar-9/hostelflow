@@ -34,7 +34,13 @@ const BED_TONES: Record<BedState, Tone> = {
   checkout: "danger",
 };
 
-export function InvoiceStatusBadge({ status, prefix }: { status: InvoiceStatus; prefix?: string }) {
+export function InvoiceStatusBadge({
+  status,
+  prefix,
+}: {
+  status: InvoiceStatus;
+  prefix?: string;
+}) {
   return (
     <Badge tone={INVOICE_TONES[status]}>
       {(prefix ? prefix + " " : "") + INVOICE_STATUS_LABELS[status]}
@@ -42,7 +48,13 @@ export function InvoiceStatusBadge({ status, prefix }: { status: InvoiceStatus; 
   );
 }
 
-export function PoliceStatusBadge({ stage, prefix }: { stage: PoliceStage; prefix?: string }) {
+export function PoliceStatusBadge({
+  stage,
+  prefix,
+}: {
+  stage: PoliceStage;
+  prefix?: string;
+}) {
   return (
     <Badge tone={POLICE_TONES[stage]}>
       {(prefix ? prefix + " " : "") + POLICE_STAGE_LABELS[stage]}

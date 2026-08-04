@@ -51,8 +51,12 @@ export default function PoliceVerificationPage() {
           return (
             <section key={stage} className="flex flex-col gap-2.5">
               <div className="flex items-center gap-2">
-                <h2 className="text-[13px] font-extrabold">{POLICE_STAGE_LABELS[stage]}</h2>
-                <Badge tone={stage === "verified" ? "success" : "warning"}>{rows.length}</Badge>
+                <h2 className="text-[13px] font-extrabold">
+                  {POLICE_STAGE_LABELS[stage]}
+                </h2>
+                <Badge tone={stage === "verified" ? "success" : "warning"}>
+                  {rows.length}
+                </Badge>
               </div>
               <div className="flex flex-col gap-2 lg:grid lg:grid-cols-2">
                 {rows.slice(0, 12).map((resident) => (

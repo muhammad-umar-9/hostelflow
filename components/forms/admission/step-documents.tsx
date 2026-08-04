@@ -4,13 +4,11 @@ import * as React from "react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { DocumentUploadList, type DocumentItem } from "@/components/forms/document-upload-list";
+  DocumentUploadList,
+  type DocumentItem,
+} from "@/components/forms/document-upload-list";
 import type { AdmissionDocuments } from "./types";
 
 const ITEMS: DocumentItem[] = [

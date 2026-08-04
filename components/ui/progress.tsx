@@ -8,7 +8,12 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   indicatorClassName?: string;
 }
 
-export function Progress({ value, className, indicatorClassName, ...props }: ProgressProps) {
+export function Progress({
+  value,
+  className,
+  indicatorClassName,
+  ...props
+}: ProgressProps) {
   const clamped = Math.max(0, Math.min(100, value));
   return (
     <div
