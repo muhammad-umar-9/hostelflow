@@ -7,10 +7,15 @@ checkout with security settlement, and a resident companion portal.
 All data is typed mock data behind a repository interface. No backend, no database, no
 secrets in this project.
 
+> **Status:** this is the stabilized frontend, not the product. The login, the role
+> switcher and every number on every screen are demo behaviour. `docs/frontend-audit.md`
+> lists exactly what is still mock-driven and what replaces it. The product specification
+> is `PROJECT_SPEC.md`.
+
 ## Requirements
 
-- Node.js 18.18 or newer (Node 20 LTS recommended)
-- npm 9 or newer
+- Node.js 20.9 or newer (Next.js 16 requirement; Node 22 LTS recommended)
+- npm 10 or newer
 
 ## Install and run
 
@@ -26,12 +31,17 @@ npm run build
 npm run start
 ```
 
-Type check and lint:
+Checks:
 
 ```bash
-npm run typecheck
-npm run lint
+npm run format:check   # Prettier
+npm run lint           # ESLint (flat config)
+npm run typecheck      # tsc --noEmit
+npm run verify         # all of the above, then a production build
+npm run test:e2e       # Playwright route smoke tests (builds and starts the app itself)
 ```
+
+The Playwright suite needs its browser once: `npx playwright install chromium`.
 
 Copy `.env.example` to `.env.local` if you want to override the app name or point the app
 at a real API later. Nothing in this project requires a secret.
@@ -43,36 +53,40 @@ The role is also switchable at any time from the sidebar on desktop and from **M
 mobile, so a live demo never has to log out. Owner and Manager share the staff navigation;
 Resident gets the smaller companion navigation.
 
+**This is presentation state, not authorization.** The role lives in `localStorage`, the
+OTP is hard-coded, and no server checks anything. Both are removed when real
+authentication lands.
+
 `Reset demo data` (sidebar / More) restores the hostel to its starting state.
 
 ## Routes
 
-| Route | Screen |
-| --- | --- |
-| `/login` | Splash, phone + OTP, demo role selector |
-| `/dashboard` | Owner / manager dashboard, occupancy, collection, attention list |
-| `/rooms` | Rooms grouped by floor, type / vacancy / floor filters |
-| `/rooms/detail?no=101` | Room detail, bed layout, bed action sheet |
-| `/enquiries` | Walk-in enquiry pipeline |
-| `/enquiries/detail?id=E-41` | Lead detail, matching beds, hold, convert to admission |
-| `/residents` | Resident directory with search and filters |
-| `/residents/detail?id=R1001` | Resident profile: overview, documents, payments, activity |
-| `/admissions/new` | Seven-step admission wizard |
-| `/admissions/upload` | Student self-upload page opened from the WhatsApp link |
-| `/admissions/success` | Admission confirmation and receipt actions |
-| `/payments` | Monthly rent list, filters, bulk WhatsApp reminders |
-| `/payments/proofs` | Payment-proof approval queue |
-| `/payments/proofs/detail?id=PP-210` | Proof review: approve, partial, reject with reason |
-| `/receipts` and `/receipts/detail?id=...` | Receipt list and printable receipt |
-| `/police-verification` | Verification tracker grouped by stage |
-| `/checkout?resident=R1001` | Guided checkout and security settlement |
-| `/resident-portal` | Resident home |
-| `/resident-portal/payments` | Resident payments and receipts |
-| `/resident-portal/requests` | Maintenance requests |
-| `/resident-portal/profile` | Resident profile (read-only fields) |
-| `/settings` | Hostel, charges, payment details, permissions, theme |
-| `/more` | Secondary navigation, role switch, demo reset |
-| `/notifications` | Role-aware notification list |
+| Route                                     | Screen                                                           |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `/login`                                  | Splash, phone + OTP, demo role selector                          |
+| `/dashboard`                              | Owner / manager dashboard, occupancy, collection, attention list |
+| `/rooms`                                  | Rooms grouped by floor, type / vacancy / floor filters           |
+| `/rooms/detail?no=101`                    | Room detail, bed layout, bed action sheet                        |
+| `/enquiries`                              | Walk-in enquiry pipeline                                         |
+| `/enquiries/detail?id=E-41`               | Lead detail, matching beds, hold, convert to admission           |
+| `/residents`                              | Resident directory with search and filters                       |
+| `/residents/detail?id=R1001`              | Resident profile: overview, documents, payments, activity        |
+| `/admissions/new`                         | Seven-step admission wizard                                      |
+| `/admissions/upload`                      | Student self-upload page opened from the WhatsApp link           |
+| `/admissions/success`                     | Admission confirmation and receipt actions                       |
+| `/payments`                               | Monthly rent list, filters, bulk WhatsApp reminders              |
+| `/payments/proofs`                        | Payment-proof approval queue                                     |
+| `/payments/proofs/detail?id=PP-210`       | Proof review: approve, partial, reject with reason               |
+| `/receipts` and `/receipts/detail?id=...` | Receipt list and printable receipt                               |
+| `/police-verification`                    | Verification tracker grouped by stage                            |
+| `/checkout?resident=R1001`                | Guided checkout and security settlement                          |
+| `/resident-portal`                        | Resident home                                                    |
+| `/resident-portal/payments`               | Resident payments and receipts                                   |
+| `/resident-portal/requests`               | Maintenance requests                                             |
+| `/resident-portal/profile`                | Resident profile (read-only fields)                              |
+| `/settings`                               | Hostel, charges, payment details, permissions, theme             |
+| `/more`                                   | Secondary navigation, role switch, demo reset                    |
+| `/notifications`                          | Role-aware notification list                                     |
 
 Detail screens read their record from a query parameter (`?id=`, `?no=`) rather than a
 dynamic `[id]` segment. Swapping them to dynamic segments later is mechanical: move the
@@ -113,20 +127,28 @@ lib/
   formatters/  Rs 9,000 · 04 Aug 2026 · 0300 1234567 · CNIC masking
   validations/ Zod schemas used by React Hook Form
   constants/   month, labels, floors, payment methods
+docs/          frontend audit and architecture notes
 public/        PWA manifest, icons, placeholder images
 styles/        Tailwind layers and CSS colour variables
+tests/e2e/     Playwright route smoke tests and design-token guards
 ```
 
-### Replacing mock data with your API
+### Replacing mock data with a real backend
 
-`lib/repository/index.ts` exports a single `hostelRepository` instance. Implement
-`HostelRepository` against your PostgreSQL API and change that one line:
+`lib/repository/index.ts` exports a single `hostelRepository` instance, so the data source
+has one swap point:
 
 ```ts
 export const hostelRepository: HostelRepository = new ApiHostelRepository(baseUrl);
 ```
 
-No component imports mock data directly, so nothing else changes.
+That alone is **not** enough, for two reasons.
+
+1. Fifteen screens and components still import `@/lib/mock-data/selectors` directly and
+   bypass the repository entirely. They are listed in `docs/frontend-audit.md`.
+2. The repository hands the whole hostel to the browser as one snapshot. A real
+   multi-user system has to fetch per screen and per role on the server, so records can be
+   authorized individually. The snapshot pattern is replaced rather than reimplemented.
 
 ## Design rules kept from the approved prototype
 
@@ -149,5 +171,8 @@ always tracked separately from rent and is only released through the checkout fl
 
 `public/manifest.webmanifest` with standalone display, portrait orientation, theme colour
 `#0f2a47`, maskable icon and app shortcuts. Metadata and viewport are declared in
-`app/layout.tsx`. Add a service worker (for example `next-pwa`) when you need offline
-caching — it was left out so the export has no build-time surprises.
+`app/layout.tsx`.
+
+Not installable-ready yet: the icons are SVG-only (production needs PNG and maskable PNG),
+there is no service worker or offline shell, and `start_url` points at `/dashboard`, which
+is the wrong landing page for a resident. See `docs/frontend-audit.md`.
