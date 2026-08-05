@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { MembershipRole } from "@/lib/generated/prisma/enums";
+import { MembershipRole, StoredObjectKind } from "@/lib/generated/prisma/enums";
 import { recordAudit, requestContext } from "@/lib/server/audit";
-import { requireMembership, statusForError } from "@/lib/server/authz";
+import {
+  hasPermission,
+  requireMembership,
+  statusForError,
+  type Permission,
+} from "@/lib/server/authz";
 import { prisma } from "@/lib/server/db";
 import { getPrivateObjectStream } from "@/lib/server/storage";
 import { Readable } from "node:stream";
@@ -21,6 +26,13 @@ import { Readable } from "node:stream";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/** Documents that are an identity number in image form. */
+const CNIC_KINDS = new Set<StoredObjectKind>([
+  StoredObjectKind.CNIC_FRONT,
+  StoredObjectKind.CNIC_BACK,
+  StoredObjectKind.GUARDIAN_CNIC,
+]);
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -37,12 +49,32 @@ export async function GET(
         mimeType: true,
         kind: true,
         hostelId: true,
+        // Every relation that records a resident owner. Anything missing here means the
+        // rightful owner is refused their own file.
         residentDocument: { select: { residentId: true } },
-        paymentProofs: { select: { residentId: true }, take: 1 },
+        paymentProofs: { select: { residentId: true } },
+        receipts: { select: { residentId: true } },
+        policeDocuments: { select: { residentId: true } },
+        damageDeductions: { select: { checkout: { select: { residentId: true } } } },
       },
     });
 
     if (!object) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Staff need a permission, not merely a membership. Without this a manager whose
+    // owner has explicitly set {"residents.read": false} could still stream every CNIC
+    // image in the hostel, and the permission matrix would be decoration.
+    if (membership.role !== MembershipRole.RESIDENT) {
+      const required: Permission = CNIC_KINDS.has(object.kind)
+        ? // A scan of a CNIC is the identity number itself, so it sits behind the same
+          // permission that governs revealing the number on screen.
+          "residents.viewFullCnic"
+        : "residents.read";
+
+      if (!hasPermission(membership, required)) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+    }
 
     if (membership.role === MembershipRole.RESIDENT) {
       const self = await prisma.resident.findFirst({
@@ -54,6 +86,9 @@ export async function GET(
         [
           object.residentDocument?.residentId,
           ...object.paymentProofs.map((proof) => proof.residentId),
+          ...object.receipts.map((receipt) => receipt.residentId),
+          ...object.policeDocuments.map((police) => police.residentId),
+          ...object.damageDeductions.map((deduction) => deduction.checkout?.residentId),
         ].filter((value): value is string => Boolean(value)),
       );
 

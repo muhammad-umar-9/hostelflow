@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
+import { UploadValidationError } from "@/lib/domain/uploads";
 import { StoredObjectKind } from "@/lib/generated/prisma/enums";
 import { recordAudit, requestContext } from "@/lib/server/audit";
 import { requirePermission, statusForError } from "@/lib/server/authz";
 import { prisma } from "@/lib/server/db";
+import { serverEnv } from "@/lib/server/env";
 import {
   StorageError,
   buildObjectKey,
   putPrivateObject,
+  removePrivateObject,
   validateUpload,
 } from "@/lib/server/storage";
 import { createHash } from "node:crypto";
@@ -39,9 +42,34 @@ function isUploadableKind(value: string): value is StoredObjectKind {
   return UPLOADABLE_KINDS.has(value as StoredObjectKind);
 }
 
+/**
+ * Slack allowed on top of the file limit for multipart boundaries, field names and
+ * headers, so a file exactly at the limit is not rejected by its own envelope.
+ */
+const MULTIPART_OVERHEAD = 64 * 1024;
+
 export async function POST(request: Request) {
+  let storedObjectKey: string | null = null;
+
   try {
     const { user, membership } = await requirePermission("residents.write");
+
+    // Checked BEFORE reading the body. `formData()` buffers the whole request into
+    // memory, so consulting the size limit afterwards is too late: a single large POST
+    // from any staff session would exhaust the container. Caddy caps bodies at 10 MB in
+    // production, but the application must not depend on the proxy being in front of it.
+    const declaredLength = Number(request.headers.get("content-length") ?? "0");
+    const maxBytes = serverEnv().MAX_UPLOAD_BYTES;
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > maxBytes + MULTIPART_OVERHEAD
+    ) {
+      const limitMb = Math.floor(maxBytes / (1024 * 1024));
+      return NextResponse.json(
+        { error: `The file is larger than the ${limitMb} MB limit` },
+        { status: 413 },
+      );
+    }
 
     const form = await request.formData();
     const file = form.get("file");
@@ -63,6 +91,10 @@ export async function POST(request: Request) {
 
     const objectKey = buildObjectKey(membership.hostelId, kindValue, mimeType);
     await putPrivateObject({ objectKey, bytes, mimeType });
+    // Remembered so the catch block can remove it if the transaction below fails. An
+    // object with no metadata row is unreachable through the application and has no
+    // deletion path, and these objects are CNIC images.
+    storedObjectKey = objectKey;
 
     const checksum = createHash("sha256").update(bytes).digest("hex");
     const context = await requestContext();
@@ -101,9 +133,31 @@ export async function POST(request: Request) {
       return record;
     });
 
+    // Past this point the object and its row both exist, so nothing is orphaned.
+    storedObjectKey = null;
+
     return NextResponse.json({ document: stored }, { status: 201 });
   } catch (error) {
-    if (error instanceof StorageError) {
+    // Compensating delete. The bytes reached MinIO before the transaction ran, so a
+    // failure after the upload leaves an object no row points at — invisible to the
+    // application, undeletable through it, and holding someone's CNIC.
+    if (storedObjectKey) {
+      try {
+        await removePrivateObject(storedObjectKey);
+      } catch (cleanupError) {
+        // Worth knowing about: it means an orphan really is sitting in the bucket. The
+        // key is safe to log because it contains no personal data by construction.
+        console.error("Failed to remove an orphaned upload", {
+          objectKey: storedObjectKey,
+          message: cleanupError instanceof Error ? cleanupError.message : "unknown",
+        });
+      }
+    }
+
+    // Validation failures carry a message written for the person uploading, and a status
+    // that is not 500. UploadValidationError is what the validator actually throws;
+    // StorageError covers a genuine MinIO failure.
+    if (error instanceof UploadValidationError || error instanceof StorageError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 

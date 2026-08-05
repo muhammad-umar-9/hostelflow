@@ -116,17 +116,27 @@ export async function requireMembership(options?: {
 }): Promise<AuthContext> {
   const user = await requireUser();
 
+  // When a hostel is named, select on it rather than fetching an arbitrary membership and
+  // comparing afterwards. The schema's @@unique([hostelId, userId]) permits a user to
+  // belong to several hostels, so an unordered findFirst would pick a nondeterministic
+  // one and then 404 a hostel the user is genuinely a member of.
   const membership = await prisma.hostelMembership.findFirst({
-    where: { userId: user.id, revokedAt: null },
+    where: {
+      userId: user.id,
+      revokedAt: null,
+      ...(options?.hostelId ? { hostelId: options.hostelId } : {}),
+    },
+    // Deterministic when no hostel is named and the user has more than one membership:
+    // the oldest wins, consistently, rather than whatever the planner returns first.
+    orderBy: { createdAt: "asc" },
     select: { hostelId: true, role: true, permissions: true },
   });
 
   if (!membership) {
+    // Named hostel with no membership reads as missing, not forbidden, so this cannot be
+    // used to discover which hostels exist.
+    if (options?.hostelId) throw new NotFoundError();
     throw new AuthorizationError("Your account is not linked to a hostel");
-  }
-
-  if (options?.hostelId && options.hostelId !== membership.hostelId) {
-    throw new NotFoundError();
   }
 
   if (options?.roles && !options.roles.includes(membership.role)) {
