@@ -62,11 +62,13 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
  * The type of the client handed to a function running inside `prisma.$transaction`.
  * Helpers that must join their caller's transaction — audit writes, ledger entries —
  * accept this so their row commits or rolls back with the operation it describes.
+ *
+ * Derived from `$transaction` itself rather than hand-written as an `Omit`, so it stays
+ * correct when Prisma changes which methods the interactive client exposes.
  */
-export type TransactionClient = Omit<
-  PrismaClient,
-  "$connect" | "$disconnect" | "$transaction" | "$extends"
->;
+export type TransactionClient = Parameters<
+  Parameters<PrismaClient["$transaction"]>[0]
+>[0];
 
 /** Either the shared client or an open transaction. */
 export type DbClient = PrismaClient | TransactionClient;
