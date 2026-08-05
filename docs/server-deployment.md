@@ -146,11 +146,17 @@ docker compose up -d app
 docker compose logs --tail=100 app
 ```
 
-Migrations apply automatically on start. Take a manual backup first:
+Migrations apply automatically on start. Take a manual backup first — a single dump, not a
+second copy of the loop:
 
 ```bash
-docker compose exec backup sh -c 'BACKUP_INTERVAL_SECONDS=0 sh /usr/local/bin/backup.sh' &
-sleep 30 && kill %1
+docker compose exec backup sh -c '
+  stamp=$(date -u +%Y%m%d-%H%M%S)
+  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --host=postgres --username="$POSTGRES_USER" \
+    --dbname="$POSTGRES_DB" --no-owner --clean --if-exists \
+    | gzip -9 > "/backups/db/manual-${stamp}.sql.gz"
+  ls -lh "/backups/db/manual-${stamp}.sql.gz"
+'
 ```
 
 ### Rollback limitations

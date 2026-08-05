@@ -122,6 +122,48 @@ jobs:
       - name: Integration tests
         run: npm run test:integration
 
+  image:
+    name: Production image builds and can start
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # This job exists because the first version of the Dockerfile hand-picked which
+    # node_modules directories to copy into the runtime stage and got it wrong: tsx was
+    # copied without its esbuild dependency, and minio and better-auth were absent
+    # entirely. Everything passed lint, types, tests and build — the image simply exited
+    # on boot, which nothing in CI would have noticed. The Dockerfile now ends with a
+    # require.resolve check for every module the entrypoint needs, so building the image
+    # is the test.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hostelflow:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The entrypoint refuses to start without a database, which is correct. This checks
+      # the layer above that: the operator commands resolve their imports and run.
+      - name: Operator scripts are runnable in the image
+        run: |
+          docker run --rm --entrypoint node hostelflow:ci \
+            -e "['minio','better-auth','@prisma/adapter-pg','esbuild'].forEach(m => require.resolve(m)); console.log('runtime modules resolve')"
+          docker run --rm --entrypoint node_modules/.bin/tsx hostelflow:ci --version
+          docker run --rm --entrypoint node_modules/.bin/prisma hostelflow:ci --version
+
+      - name: Image runs as a non-root user
+        run: |
+          user=$(docker run --rm --entrypoint id hostelflow:ci -un)
+          echo "image runs as: $user"
+          test "$user" = "node"
+
   e2e:
     name: Playwright smoke tests
     runs-on: ubuntu-latest
