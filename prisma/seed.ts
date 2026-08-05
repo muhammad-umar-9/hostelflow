@@ -105,11 +105,12 @@ function roomPlan(): { number: string; level: number; typeCode: string }[] {
 async function main() {
   console.log(`Seeding structure for ${PILOT.name}...`);
 
+  // Nothing is updated on re-run. The hostel's name and address are owner-editable in
+  // settings, and an entrypoint that seeds on every boot would otherwise rename a renamed
+  // hostel back to the pilot's values on each restart.
   const hostel = await prisma.hostel.upsert({
     where: { slug: PILOT.slug },
-    // Only fields that describe identity are updated. Rent, deposit and the due day are
-    // left alone once set, so re-running the seed never reverts an owner's settings.
-    update: { name: PILOT.name, addressLine: PILOT.addressLine, city: PILOT.city },
+    update: {},
     create: {
       slug: PILOT.slug,
       name: PILOT.name,
@@ -125,7 +126,7 @@ async function main() {
   for (const floor of PILOT.floors) {
     await prisma.floor.upsert({
       where: { hostelId_level: { hostelId: hostel.id, level: floor.level } },
-      update: { name: floor.name },
+      update: {},
       create: { hostelId: hostel.id, level: floor.level, name: floor.name },
     });
   }
@@ -133,8 +134,11 @@ async function main() {
   for (const type of PILOT.roomTypes) {
     await prisma.roomType.upsert({
       where: { hostelId_code: { hostelId: hostel.id, code: type.code } },
-      // Rent is not updated: an owner who changed the price should keep their change.
-      update: { name: type.name, capacity: type.capacity },
+      // Capacity is not updated either. It is owner-editable, beds already exist against
+      // the current value, and this loop never deletes a bed — so resetting capacity here
+      // would leave a room claiming three beds while four rows exist, one of them
+      // occupied by a paying resident.
+      update: {},
       create: {
         hostelId: hostel.id,
         code: type.code,
@@ -148,7 +152,7 @@ async function main() {
   for (const charge of PILOT.charges) {
     await prisma.chargeType.upsert({
       where: { hostelId_code: { hostelId: hostel.id, code: charge.code } },
-      update: { label: charge.label, kind: charge.kind },
+      update: {},
       create: {
         hostelId: hostel.id,
         code: charge.code,
@@ -182,20 +186,25 @@ async function main() {
     if (!floorId || !roomType)
       throw new Error(`Missing floor or type for ${plan.number}`);
 
+    // Never updated. An owner may have converted a room to another type and gained a
+    // bed that is now occupied; reassigning roomTypeId here would put the room back to
+    // the pilot's plan and leave its bed count no longer matching its capacity.
     const room = await prisma.room.upsert({
       where: { hostelId_number: { hostelId: hostel.id, number: plan.number } },
-      update: { floorId, roomTypeId: roomType.id },
+      update: {},
       create: {
         hostelId: hostel.id,
         floorId,
         roomTypeId: roomType.id,
         number: plan.number,
       },
+      include: { roomType: { select: { capacity: true } } },
     });
     roomsCreated += 1;
 
-    // Room capacity must equal the number of active beds, so bed count follows the type.
-    for (const label of BED_LABELS.slice(0, roomType.capacity)) {
+    // Beds follow the room's CURRENT type, not the pilot plan, so a room the owner
+    // converted keeps the right number of beds on a re-run.
+    for (const label of BED_LABELS.slice(0, room.roomType.capacity)) {
       const existing = await prisma.bed.findUnique({
         where: { roomId_label: { roomId: room.id, label } },
         select: { id: true },

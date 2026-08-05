@@ -2,9 +2,10 @@
  * Demonstration data — development only.
  *
  * This creates fictional residents, invoices, payments, proofs and enquiries so the
- * screens have something realistic to show. It refuses to run when NODE_ENV is production,
- * and refuses again unless ALLOW_DEMO_SEED=true, because writing invented residents into a
- * real hostel's database would corrupt the owner's records.
+ * screens have something realistic to show. Writing invented residents into a real
+ * hostel's database would corrupt the owner's records, so three separate guards must all
+ * pass: NODE_ENV must not be production, ALLOW_DEMO_SEED must be true, and — the one that
+ * actually matters — the target hostel must hold no resident this script did not create.
  *
  * Every CNIC, phone number and payment reference here is invented. None of it belongs to a
  * real person.
@@ -45,6 +46,20 @@ if (process.env.ALLOW_DEMO_SEED !== "true") {
   );
   process.exit(1);
 }
+
+/**
+ * The NODE_ENV check above is necessary but nowhere near sufficient.
+ *
+ * `tsx prisma/seed-demo.ts` does not load `.env`, so NODE_ENV is usually undefined and
+ * that guard simply does not fire. The realistic accident is a developer restoring a
+ * production dump locally to reproduce a bug — a workflow this project's own
+ * backup-and-restore documentation describes — and then running the demo seed to get
+ * populated screens. Nothing above would stop it, and the damage is not undoable: the
+ * audit rows it writes are protected by append-only triggers and ON DELETE RESTRICT.
+ *
+ * So the real guard is downstream, in `assertHostelIsSafeToSeed`: the target hostel must
+ * contain no residents this script did not create.
+ */
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -164,16 +179,75 @@ const ENQUIRIES = [
   },
 ] as const;
 
-/** First day of the current month, which is how monthly invoices are keyed. */
+/** The hostel operates in Pakistan; billing months are its months, not UTC's. */
+const HOSTEL_TIME_ZONE = "Asia/Karachi";
+
+/**
+ * First day of the current month **in the hostel's time zone**.
+ *
+ * Computing this from UTC would put the first five hours of the 1st into the previous
+ * month, since Pakistan is UTC+5. That is not cosmetic: `monthlyKey` is the column the
+ * `@@unique([admissionId, monthlyKey])` index uses to make monthly invoicing idempotent,
+ * so a seed stamped with the wrong month leaves the real generator free to raise a second
+ * invoice for the month that was actually meant — double-billing the resident.
+ */
 function currentMonthStart(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const [year, month] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HOSTEL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .split("-")
+    .map(Number);
+
+  return new Date(Date.UTC(year, month - 1, 1));
 }
 
 function daysFromNow(days: number): Date {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + days);
   return date;
+}
+
+/** Every CNIC this script invents shares this prefix, which no real CNIC block uses. */
+const DEMO_CNIC_PREFIX = "35202000000";
+
+/**
+ * Refuses to touch a hostel that holds records this script did not create.
+ *
+ * This is the guard that actually matters. The environment checks at the top of the file
+ * are easy to satisfy by accident — NODE_ENV is usually unset under `tsx` — whereas
+ * "does this database already contain real people?" is the question whose wrong answer
+ * corrupts an owner's records irreversibly.
+ */
+async function assertHostelIsSafeToSeed(hostelId: string, hostelName: string) {
+  const foreignResident = await prisma.resident.findFirst({
+    where: {
+      hostelId,
+      NOT: { cnicNormalized: { startsWith: DEMO_CNIC_PREFIX } },
+    },
+    select: { id: true },
+  });
+
+  if (foreignResident) {
+    const total = await prisma.resident.count({ where: { hostelId } });
+    console.error(
+      `Refusing to seed demo data into "${hostelName}".\n\n` +
+        `It already holds ${total} resident record(s) that this script did not create,\n` +
+        "which means it is a real or restored database rather than a scratch one.\n" +
+        "Fictional residents written here could not be cleanly removed afterwards: the\n" +
+        "audit rows they produce are append-only and pinned by ON DELETE RESTRICT.\n\n" +
+        "Use an empty database:\n" +
+        "  DATABASE_URL=<scratch db> npm run db:seed\n" +
+        "  DATABASE_URL=<scratch db> ALLOW_DEMO_SEED=true npm run db:seed:demo",
+    );
+    process.exitCode = 1;
+    return false;
+  }
+
+  return true;
 }
 
 async function main() {
@@ -183,6 +257,8 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  if (!(await assertHostelIsSafeToSeed(hostel.id, hostel.name))) return;
 
   const staffUser = await prisma.hostelMembership.findFirst({
     where: {
@@ -405,15 +481,51 @@ async function main() {
     created += 1;
   }
 
-  // Three proofs waiting in the review queue.
+  // Proofs waiting in the review queue.
+  //
+  // The claimed amount is derived from what the resident actually still owes rather than
+  // hard-coded. A fixed figure produced proofs that could not be approved into a balanced
+  // allocation: one resident's invoice was already fully paid, another was on a
+  // three-seater rent, and a third had made a part payment.
   const proofCandidates = await prisma.resident.findMany({
     where: { hostelId: hostel.id, status: ResidentStatus.ACTIVE },
-    take: 3,
+    take: 4,
     orderBy: { createdAt: "asc" },
-    select: { id: true, fullName: true },
+    select: {
+      id: true,
+      fullName: true,
+      invoices: {
+        where: {
+          status: {
+            in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE],
+          },
+        },
+        orderBy: { dueDate: "asc" },
+        take: 1,
+        select: {
+          id: true,
+          totalPkr: true,
+          lines: { select: { allocations: { select: { amountPkr: true } } } },
+        },
+      },
+    },
   });
 
+  let proofsCreated = 0;
+
   for (const [index, resident] of proofCandidates.entries()) {
+    if (proofsCreated >= 3) break;
+
+    const invoice = resident.invoices[0];
+    // A resident whose rent is settled has nothing to submit a proof for.
+    if (!invoice) continue;
+
+    const receivedPkr = invoice.lines
+      .flatMap((line) => line.allocations)
+      .reduce((total, allocation) => total + allocation.amountPkr, 0);
+    const outstandingPkr = Math.max(0, invoice.totalPkr - receivedPkr);
+    if (outstandingPkr === 0) continue;
+
     const already = await prisma.paymentProof.findFirst({
       where: { residentId: resident.id, status: PaymentProofStatus.SUBMITTED },
       select: { id: true },
@@ -424,8 +536,9 @@ async function main() {
       data: {
         hostelId: hostel.id,
         residentId: resident.id,
+        invoiceId: invoice.id,
         status: PaymentProofStatus.SUBMITTED,
-        claimedAmountPkr: 7500,
+        claimedAmountPkr: outstandingPkr,
         method: index === 0 ? PaymentMethod.JAZZCASH : PaymentMethod.BANK_TRANSFER,
         reference: `DEMO-REF-${1000 + index}`,
         senderName: resident.fullName,
@@ -433,6 +546,7 @@ async function main() {
         events: { create: { status: PaymentProofStatus.SUBMITTED, reason: "Demo seed" } },
       },
     });
+    proofsCreated += 1;
   }
 
   // Two residents leaving soon, so the dashboard has upcoming checkouts.
@@ -450,13 +564,48 @@ async function main() {
     });
     if (existing) continue;
 
+    // Both figures come from the ledger and the invoices, never from the charge-type
+    // default. The schema's contract is that stored checkout figures are computed from
+    // real rows; reading defaultAmountPkr would also mean an owner editing the deposit
+    // later makes every seeded checkout claim a balance the ledger does not support.
+    const depositEntries = await prisma.securityDepositLedger.findMany({
+      where: { admissionId: admission.id },
+      select: { amountPkr: true },
+    });
+    const depositHeldPkr = depositEntries.reduce(
+      (total, entry) => total + entry.amountPkr,
+      0,
+    );
+
+    const openInvoices = await prisma.invoice.findMany({
+      where: {
+        admissionId: admission.id,
+        status: {
+          in: [InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE],
+        },
+      },
+      select: {
+        totalPkr: true,
+        lines: { select: { allocations: { select: { amountPkr: true } } } },
+      },
+    });
+
+    const outstandingRentPkr = openInvoices.reduce((total, invoice) => {
+      const received = invoice.lines
+        .flatMap((line) => line.allocations)
+        .reduce((sum, allocation) => sum + allocation.amountPkr, 0);
+      return total + Math.max(0, invoice.totalPkr - received);
+    }, 0);
+
     await prisma.checkout.create({
       data: {
         hostelId: hostel.id,
         residentId: admission.residentId,
         admissionId: admission.id,
         intendedLeavingDate: daysFromNow(10),
-        depositHeldPkr: deposit?.defaultAmountPkr ?? 0,
+        depositHeldPkr,
+        outstandingRentPkr,
+        refundablePkr: Math.max(0, depositHeldPkr - outstandingRentPkr),
       },
     });
   }
@@ -483,17 +632,31 @@ async function main() {
   }
 
   // A couple of beds under maintenance so the room grid is not uniformly green.
-  const maintenanceBeds = await prisma.bed.findMany({
-    where: { hostelId: hostel.id, status: BedStatus.VACANT },
-    take: 2,
-    orderBy: { createdAt: "desc" },
-    select: { id: true },
+  //
+  // Guarded like every other block here. Without the count, each run would take two more
+  // VACANT beds out of service — the ones already flipped no longer match the filter — so
+  // three runs would quietly remove six beds from the hostel's capacity with no way back.
+  const MAINTENANCE_TARGET = 2;
+  const alreadyDown = await prisma.bed.count({
+    where: { hostelId: hostel.id, status: BedStatus.MAINTENANCE },
   });
-  for (const bed of maintenanceBeds) {
-    await prisma.bed.update({
-      where: { id: bed.id },
-      data: { status: BedStatus.MAINTENANCE },
+
+  if (alreadyDown < MAINTENANCE_TARGET) {
+    const maintenanceBeds = await prisma.bed.findMany({
+      where: { hostelId: hostel.id, status: BedStatus.VACANT },
+      take: MAINTENANCE_TARGET - alreadyDown,
+      // Ordered by id, not createdAt: beds seeded in the same run can share a millisecond,
+      // which made the choice differ between environments.
+      orderBy: { id: "asc" },
+      select: { id: true },
     });
+
+    for (const bed of maintenanceBeds) {
+      await prisma.bed.update({
+        where: { id: bed.id },
+        data: { status: BedStatus.MAINTENANCE },
+      });
+    }
   }
 
   const counts = {
