@@ -3,8 +3,8 @@ import { auth } from "@/lib/server/auth";
 
 /**
  * The only authentication endpoint. Sign-up is disabled in the Better Auth
- * configuration, so this serves sign-in, sign-out and session reads; it cannot be used
- * to create an account.
+ * configuration, so this serves sign-in, sign-out and session reads; it cannot be used to
+ * create an account.
  *
  * The handler is built per request rather than at module scope. `next build` imports this
  * module to collect its configuration, and constructing Better Auth at import time would

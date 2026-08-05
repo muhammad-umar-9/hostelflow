@@ -12,9 +12,14 @@ import { serverEnv } from "./env";
  * this safe to share across concurrent requests in a long-lived server process — creating
  * a client per request would exhaust PostgreSQL's connection limit under load.
  *
- * In development Next.js re-evaluates modules on every hot reload, so the client is
- * cached on `globalThis` to avoid leaking a pool per reload. Production gets a single
- * module instance and needs no such guard.
+ * The client is built on first use rather than at import, and reached through a proxy so
+ * call sites keep writing `prisma.resident.findMany()`. That matters for more than
+ * tidiness: `next build` imports every route module to collect its configuration, and
+ * building the client at import time would make a production build require a live
+ * DATABASE_URL and a real AUTH_SECRET. A build machine has no business holding either.
+ *
+ * The instance is cached on `globalThis` because Next.js re-evaluates modules on each hot
+ * reload in development, and a fresh pool per reload exhausts PostgreSQL quickly.
  */
 
 function createPrismaClient(): PrismaClient {
@@ -39,16 +44,6 @@ function client(): PrismaClient {
   return globalForPrisma.hostelflowPrisma;
 }
 
-/**
- * Built on first use rather than at import, and reached through a proxy so call sites
- * still read `prisma.resident.findMany()`.
- *
- * That is not tidiness. `next build` imports every route module to collect its
- * configuration, so constructing the client at import time makes a production build
- * require a live DATABASE_URL and a real AUTH_SECRET — which the Dockerfile builder and
- * CI deliberately do not provide, and which a build machine has no business holding. It
- * also defeats the whole point of validating the environment lazily in env.ts.
- */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, property) {
     const instance = client();

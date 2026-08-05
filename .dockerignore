@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+build
+.git
+.github
+.env
+.env.local
+*.pem
+playwright-report
+test-results
+blob-report
+lib/generated
+docs
+tests
+*.md
+!README.md
