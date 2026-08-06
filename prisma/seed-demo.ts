@@ -40,9 +40,39 @@ if (process.env.NODE_ENV === "production") {
   process.exit(1);
 }
 
-if (process.env.ALLOW_DEMO_SEED !== "true") {
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL is not set.");
+  process.exit(1);
+}
+
+/** The database name from the connection string, e.g. `hostelflow_dev`. */
+function databaseNameOf(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/^\//, "") || "(none)";
+  } catch {
+    return "(unparseable)";
+  }
+}
+
+const targetDatabase = databaseNameOf(DATABASE_URL);
+
+/**
+ * `ALLOW_DEMO_SEED` must name the database, not merely say "true".
+ *
+ * A boolean flag is too easy to satisfy by accident, and the downstream guard was not the
+ * backstop it looked like: it rejects a hostel that already holds real residents, but a
+ * freshly deployed production hostel has none yet, so a brand-new live database sailed
+ * through both checks. Requiring the operator to type the database name means the demo
+ * seed cannot run anywhere they did not deliberately aim it.
+ */
+if (process.env.ALLOW_DEMO_SEED !== targetDatabase) {
   console.error(
-    "Set ALLOW_DEMO_SEED=true to confirm you want fictional residents in this database.",
+    "Refusing to seed demo data.\n\n" +
+      `To confirm you want fictional residents in the database "${targetDatabase}", run:\n` +
+      `  ALLOW_DEMO_SEED=${targetDatabase} npm run db:seed:demo\n\n` +
+      "Naming the database is deliberate: a plain true/false flag is too easy to leave\n" +
+      "set in a shell and carry into a database you did not mean to touch.",
   );
   process.exit(1);
 }
@@ -57,15 +87,10 @@ if (process.env.ALLOW_DEMO_SEED !== "true") {
  * populated screens. Nothing above would stop it, and the damage is not undoable: the
  * audit rows it writes are protected by append-only triggers and ON DELETE RESTRICT.
  *
- * So the real guard is downstream, in `assertHostelIsSafeToSeed`: the target hostel must
- * contain no residents this script did not create.
+ * The guards that carry the weight are the two above: the operator must name the target
+ * database, and `assertHostelIsSafeToSeed` refuses a hostel holding records this script
+ * did not create.
  */
-
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error("DATABASE_URL is not set.");
-  process.exit(1);
-}
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: DATABASE_URL }),

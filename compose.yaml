@@ -106,10 +106,16 @@ services:
     image: postgres:17-bookworm
     restart: unless-stopped
     env_file: .env
-    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    # bash, not sh: the script relies on `pipefail` to notice a failed pg_dump, which
+    # POSIX sh does not provide. Running it under sh silently reinstates the bug where a
+    # truncated dump is promoted to a real backup.
+    entrypoint: ["/bin/bash", "/usr/local/bin/backup.sh"]
     volumes:
       - ./docker/backup.sh:/usr/local/bin/backup.sh:ro
-      - backup-data:/backups
+      # The mount target follows BACKUP_DESTINATION. Pinning it to /backups while telling
+      # operators in .env.example that the destination is configurable meant a changed
+      # value wrote backups into the container's ephemeral layer — and logged success.
+      - backup-data:${BACKUP_DESTINATION:-/backups}
       - minio-data:/minio-source:ro
     networks:
       - internal

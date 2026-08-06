@@ -141,23 +141,46 @@ async function main() {
 
   const userId = created.user.id;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.hostelMembership.create({
-      data: { hostelId: hostel.id, userId, role: MembershipRole.OWNER },
+  // Better Auth commits the user before this transaction runs, so a failure here would
+  // otherwise leave an account with no membership: unable to sign in to anything, and
+  // impossible to recreate because the email is unique. The operator would be locked out
+  // of their own fresh deployment with no route back that does not involve SQL.
+  //
+  // Cascade deletes remove the session and account rows with it, and no audit row exists
+  // yet to pin the user, so the compensating delete genuinely succeeds.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.hostelMembership.create({
+        data: {
+          hostelId: hostel.id,
+          userId,
+          role: MembershipRole.OWNER,
+          activeUserId: userId,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: "user.created",
+          entityType: "User",
+          entityId: userId,
+          hostelId: hostel.id,
+          actorUserId: userId,
+          summary: `First owner account created for ${hostel.name} by server bootstrap`,
+          metadata: { email, role: MembershipRole.OWNER, via: "bootstrap-cli" },
+        },
+      });
+    });
+  } catch (error) {
+    await prisma.user.delete({ where: { id: userId } }).catch(() => {
+      console.error(
+        `The account ${email} was created but could not be linked to ${hostel.name}, ` +
+          "and removing it also failed.\nDelete that user row by hand before re-running.",
+      );
     });
 
-    await tx.auditLog.create({
-      data: {
-        action: "user.created",
-        entityType: "User",
-        entityId: userId,
-        hostelId: hostel.id,
-        actorUserId: userId,
-        summary: `First owner account created for ${hostel.name} by server bootstrap`,
-        metadata: { email, role: MembershipRole.OWNER, via: "bootstrap-cli" },
-      },
-    });
-  });
+    throw error;
+  }
 
   console.log(`\nOwner created for ${hostel.name}.`);
   console.log(`  ${name} <${email}>`);

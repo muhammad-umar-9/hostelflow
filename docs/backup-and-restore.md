@@ -13,8 +13,15 @@ writes to the `backup-data` volume, which is separate from the database and obje
 | `/backups/db/hostelflow-<timestamp>.sql.gz`   | `pg_dump` of the whole database |
 | `/backups/objects/objects-<timestamp>.tar.gz` | The MinIO data directory        |
 
-Both are written to a `.partial` file and renamed only on success, so a truncated dump can
-never be mistaken for a usable one during a restore.
+Both are written to a `.partial` file and renamed only after three checks pass: the
+command succeeded, `gzip -t` reads the archive back, and the result is not implausibly
+small. A truncated dump therefore never takes a real backup's name.
+
+The script runs under **bash with `pipefail`**, which is load-bearing rather than
+stylistic. Under POSIX `sh` a pipeline reports the exit status of its last command, so
+`pg_dump | gzip` "succeeded" whenever gzip did — including when pg_dump had died and
+written nothing. The empty dump was promoted to a real backup, logged as complete, and
+retention then deleted the older good ones.
 
 Retention is `BACKUP_RETENTION_DAYS`, 14 by default. Older files are deleted on each run.
 
@@ -29,9 +36,14 @@ docker compose logs backup | tail -20
 docker compose exec backup ls -lh /backups/db /backups/objects
 ```
 
-Each successful run logs `run complete`. A failure logs `ERROR` and retries on the next
-interval rather than exiting, so the service staying up is not by itself evidence that
-backups are working — check the files.
+Each successful run logs `run complete`; a run that had problems logs
+`run finished WITH ERRORS`. A failure retries on the next interval rather than exiting, so
+the service staying up is not by itself evidence that backups are working — check the
+files and their sizes.
+
+Retention runs whether or not the backup succeeded. Skipping it on failure meant one
+recurring warning could fill the volume, which then guarantees every later backup fails
+too.
 
 ### Taking one on demand
 

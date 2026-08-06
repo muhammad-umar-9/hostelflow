@@ -78,7 +78,26 @@ const PILOT = {
   ],
 } as const;
 
-const BED_LABELS = ["A", "B", "C", "D"] as const;
+/**
+ * Bed letters for a room of any capacity: A, B, C, ... Z.
+ *
+ * A fixed four-entry list silently produced fewer beds than capacity as soon as an owner
+ * configured a five-seater — exactly the capacity/bed mismatch the surrounding code takes
+ * care to avoid. Beyond Z the labelling scheme itself is wrong, so that is an error rather
+ * than a guess.
+ */
+function bedLabels(capacity: number): string[] {
+  if (!Number.isInteger(capacity) || capacity < 1) {
+    throw new Error(`Room capacity must be a positive whole number, got ${capacity}`);
+  }
+  if (capacity > 26) {
+    throw new Error(
+      `Room capacity ${capacity} exceeds the A-Z bed labelling scheme; ` +
+        "give beds explicit labels before configuring a room this large.",
+    );
+  }
+  return Array.from({ length: capacity }, (_, index) => String.fromCharCode(65 + index));
+}
 
 /**
  * 36 rooms across three floors, 12 per floor, alternating room type so each floor has a
@@ -204,7 +223,7 @@ async function main() {
 
     // Beds follow the room's CURRENT type, not the pilot plan, so a room the owner
     // converted keeps the right number of beds on a re-run.
-    for (const label of BED_LABELS.slice(0, room.roomType.capacity)) {
+    for (const label of bedLabels(room.roomType.capacity)) {
       const existing = await prisma.bed.findUnique({
         where: { roomId_label: { roomId: room.id, label } },
         select: { id: true },

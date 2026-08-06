@@ -141,8 +141,12 @@ export async function createTestResident(
   fullName = "Test Resident",
 ): Promise<TestResident> {
   const prisma = db();
-  // 13 digits, clearly invented.
-  const cnic = String(Date.now()).slice(-9).padStart(13, "9");
+  // 13 digits, clearly invented, and unique per call. Deriving it from Date.now() alone
+  // meant two residents created in the same millisecond collided on the active-CNIC
+  // unique index — a flaky failure in the tests that exist to prove that index works.
+  const cnic = `9${String(Date.now()).slice(-7)}${String(
+    Math.floor(Math.random() * 100000),
+  ).padStart(5, "0")}`;
 
   const resident = await prisma.resident.create({
     data: {
