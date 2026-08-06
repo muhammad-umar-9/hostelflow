@@ -1178,9 +1178,12 @@ BEGIN
   END IF;
 
   IF conflicting_kind IS NOT NULL THEN
+    -- restrict_violation, not unique_violation: Prisma maps the latter to its generic
+    -- P2002 "Unique constraint failed on the (not available)" and discards the message,
+    -- which tells an operator nothing about which bed or which kind of claim conflicts.
     RAISE EXCEPTION
       'Bed % already has a live %', NEW."activeBedId", conflicting_kind
-      USING ERRCODE = 'unique_violation';
+      USING ERRCODE = 'restrict_violation';
   END IF;
 
   RETURN NEW;
