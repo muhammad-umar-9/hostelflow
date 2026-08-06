@@ -183,15 +183,16 @@ const ENQUIRIES = [
 const HOSTEL_TIME_ZONE = "Asia/Karachi";
 
 /**
- * First day of the current month **in the hostel's time zone**.
+ * The current billing month **in the hostel's time zone**, as `YYYY-MM` plus the first
+ * instant of that month.
  *
  * Computing this from UTC would put the first five hours of the 1st into the previous
  * month, since Pakistan is UTC+5. That is not cosmetic: `monthlyKey` is the column the
  * `@@unique([admissionId, monthlyKey])` index uses to make monthly invoicing idempotent,
  * so a seed stamped with the wrong month leaves the real generator free to raise a second
- * invoice for the month that was actually meant — double-billing the resident.
+ * invoice for the month actually meant — double-billing the resident.
  */
-function currentMonthStart(): Date {
+function currentMonth(): { key: string; start: Date } {
   const [year, month] = new Intl.DateTimeFormat("en-CA", {
     timeZone: HOSTEL_TIME_ZONE,
     year: "numeric",
@@ -202,7 +203,10 @@ function currentMonthStart(): Date {
     .split("-")
     .map(Number);
 
-  return new Date(Date.UTC(year, month - 1, 1));
+  return {
+    key: `${year}-${String(month).padStart(2, "0")}`,
+    start: new Date(Date.UTC(year, month - 1, 1)),
+  };
 }
 
 function daysFromNow(days: number): Date {
@@ -276,7 +280,7 @@ async function main() {
     where: { hostelId_code: { hostelId: hostel.id, code: "POLICE_FORM" } },
   });
 
-  const monthStart = currentMonthStart();
+  const { key: monthKey, start: monthStart } = currentMonth();
   let created = 0;
 
   for (const person of RESIDENTS) {
@@ -410,7 +414,7 @@ async function main() {
           status,
           number,
           periodMonth: monthStart,
-          monthlyKey: monthStart,
+          monthlyKey: monthKey,
           issuedAt: monthStart,
           dueDate: new Date(
             Date.UTC(

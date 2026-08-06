@@ -194,6 +194,94 @@ describe.skipIf(!hasDatabase)("bed allocation", () => {
     expect(other.bedId).toBe(hostel.bedIds[1]);
   });
 
+  it("refuses to allocate a bed that is currently held", async () => {
+    const prisma = db();
+    const resident = await createTestResident(hostel.hostelId, "Ali Raza");
+    const bedId = hostel.bedIds[0];
+
+    await prisma.bedHold.create({
+      data: {
+        hostelId: hostel.hostelId,
+        bedId,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        activeBedId: bedId,
+      },
+    });
+
+    // The two mirror columns live in different tables, so no unique index can span
+    // them; a trigger enforces the exclusivity instead.
+    await expect(
+      prisma.bedAllocation.create({
+        data: {
+          hostelId: hostel.hostelId,
+          bedId,
+          admissionId: resident.admissionId,
+          residentId: resident.residentId,
+          activeBedId: bedId,
+        },
+      }),
+    ).rejects.toThrow(/live hold/i);
+  });
+
+  it("refuses to hold a bed that is currently allocated", async () => {
+    const prisma = db();
+    const resident = await createTestResident(hostel.hostelId, "Ali Raza");
+    const bedId = hostel.bedIds[0];
+
+    await prisma.bedAllocation.create({
+      data: {
+        hostelId: hostel.hostelId,
+        bedId,
+        admissionId: resident.admissionId,
+        residentId: resident.residentId,
+        activeBedId: bedId,
+      },
+    });
+
+    await expect(
+      prisma.bedHold.create({
+        data: {
+          hostelId: hostel.hostelId,
+          bedId,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          activeBedId: bedId,
+        },
+      }),
+    ).rejects.toThrow(/live allocation/i);
+  });
+
+  it("allows allocating a bed once its hold is released", async () => {
+    const prisma = db();
+    const resident = await createTestResident(hostel.hostelId, "Ali Raza");
+    const bedId = hostel.bedIds[0];
+
+    const hold = await prisma.bedHold.create({
+      data: {
+        hostelId: hostel.hostelId,
+        bedId,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        activeBedId: bedId,
+      },
+    });
+
+    await prisma.bedHold.update({
+      where: { id: hold.id },
+      data: { releasedAt: new Date(), activeBedId: null },
+    });
+
+    const allocation = await prisma.bedAllocation.create({
+      data: {
+        hostelId: hostel.hostelId,
+        bedId,
+        admissionId: resident.admissionId,
+        residentId: resident.residentId,
+        activeBedId: bedId,
+      },
+    });
+
+    expect(allocation.activeBedId).toBe(bedId);
+  });
+
   it("refuses a second live admission for one resident", async () => {
     const prisma = db();
     const resident = await createTestResident(hostel.hostelId, "Ali Raza");

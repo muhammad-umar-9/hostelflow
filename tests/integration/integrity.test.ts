@@ -41,7 +41,7 @@ describe.skipIf(!hasDatabase)("database integrity", () => {
         kind: "MONTHLY_RENT" as const,
         number,
         periodMonth: month,
-        monthlyKey: month,
+        monthlyKey: "2026-08",
         dueDate: new Date(Date.UTC(2026, 7, 5)),
         totalPkr: 7500,
       });
@@ -63,10 +63,8 @@ describe.skipIf(!hasDatabase)("database integrity", () => {
       const prisma = db();
       const resident = await createTestResident(hostel.hostelId);
 
-      for (const [index, month] of [
-        new Date(Date.UTC(2026, 7, 1)),
-        new Date(Date.UTC(2026, 8, 1)),
-      ].entries()) {
+      for (const [index, monthKey] of ["2026-08", "2026-09"].entries()) {
+        const month = new Date(Date.UTC(2026, 7 + index, 1));
         await prisma.invoice.create({
           data: {
             hostelId: hostel.hostelId,
@@ -75,7 +73,7 @@ describe.skipIf(!hasDatabase)("database integrity", () => {
             kind: "MONTHLY_RENT",
             number: `INV-1000${index}`,
             periodMonth: month,
-            monthlyKey: month,
+            monthlyKey: monthKey,
             dueDate: month,
             totalPkr: 7500,
           },
@@ -309,6 +307,31 @@ describe.skipIf(!hasDatabase)("database integrity", () => {
 
       const stillThere = await prisma.auditLog.findUnique({ where: { id: entry.id } });
       expect(stillThere).not.toBeNull();
+    });
+
+    it("refuses TRUNCATE, which row-level triggers do not see", async () => {
+      const prisma = db();
+
+      await prisma.auditLog.create({
+        data: {
+          action: "payment.verified",
+          entityType: "Payment",
+          hostelId: hostel.hostelId,
+          summary: "An entry someone would rather remove wholesale",
+        },
+      });
+
+      // The whole append-only guarantee rested on BEFORE UPDATE/DELETE row triggers, and
+      // TRUNCATE fires neither. One statement emptied the trail while the guarantee
+      // looked intact.
+      await expect(
+        prisma.$executeRawUnsafe('TRUNCATE TABLE "audit_log" CASCADE'),
+      ).rejects.toThrow(/append-only/i);
+
+      const survived = await prisma.auditLog.count({
+        where: { hostelId: hostel.hostelId },
+      });
+      expect(survived).toBeGreaterThan(0);
     });
 
     it("refuses to delete a user who has audit history", async () => {
