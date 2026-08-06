@@ -12,9 +12,26 @@ import { storageReachable } from "@/lib/server/storage";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/**
+ * Reachability of the database.
+ *
+ * Wrapped in try/catch rather than `.catch()` on the promise. `prisma` is a lazy proxy, so
+ * a misconfigured container throws from the property access itself — synchronously, before
+ * any promise exists — and `.catch()` never runs. The result was a bare 500 in exactly the
+ * situation this endpoint is meant to diagnose, instead of a 503 naming the failing part.
+ */
+async function databaseReachable(): Promise<boolean> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   const [database, storage] = await Promise.all([
-    prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
+    databaseReachable(),
     storageReachable(),
   ]);
 

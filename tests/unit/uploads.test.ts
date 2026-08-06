@@ -72,23 +72,45 @@ describe("accepting an upload", () => {
     ).toThrow(UploadValidationError);
   });
 
-  it("refuses a PDF declared as a JPEG", () => {
+  it("trusts the bytes over the declared type: a PDF sent as image/jpeg is stored as a PDF", () => {
+    const result = assertAllowedUpload({
+      declaredMimeType: "image/jpeg",
+      sizeBytes: PDF.length,
+      bytes: PDF,
+      maxBytes: MAX,
+    });
+    expect(result.mimeType).toBe("application/pdf");
+  });
+
+  it("accepts a file whose browser type is empty, which is what a phone photo often sends", () => {
+    const result = assertAllowedUpload({
+      declaredMimeType: "",
+      sizeBytes: JPEG.length,
+      bytes: JPEG,
+      maxBytes: MAX,
+    });
+    expect(result.mimeType).toBe("image/jpeg");
+  });
+
+  it("accepts a file with no declared type at all", () => {
+    const result = assertAllowedUpload({
+      sizeBytes: PNG.length,
+      bytes: PNG,
+      maxBytes: MAX,
+    });
+    expect(result.mimeType).toBe("image/png");
+  });
+
+  it("refuses a disallowed format however it is labelled", () => {
+    // SVG is a script-execution vector; its bytes match no allowed signature.
+    const svg = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    );
     expect(() =>
       assertAllowedUpload({
         declaredMimeType: "image/jpeg",
-        sizeBytes: PDF.length,
-        bytes: PDF,
-        maxBytes: MAX,
-      }),
-    ).toThrow(/do not match/i);
-  });
-
-  it("refuses a type that is not on the list", () => {
-    expect(() =>
-      assertAllowedUpload({
-        declaredMimeType: "image/svg+xml",
-        sizeBytes: JPEG.length,
-        bytes: JPEG,
+        sizeBytes: svg.length,
+        bytes: svg,
         maxBytes: MAX,
       }),
     ).toThrow(/JPG, PNG, WebP or PDF/);

@@ -17,6 +17,32 @@ const SIGNED_URL_PATTERN = /https?:\/\/\S*[?&](X-Amz-Signature|signature|token)=
 /** Long opaque strings: session tokens, API keys, bearer tokens. */
 const TOKEN_PATTERN = /\b[A-Za-z0-9_-]{32,}\b/g;
 
+/**
+ * A UUID is 36 characters, so `TOKEN_PATTERN` was replacing every object-key id with
+ * `[redacted]` — stripping out precisely the identifier an investigator needs to follow a
+ * document through the trail. A random UUID is not a credential: it grants nothing without
+ * an authorized session.
+ *
+ * Note what is deliberately NOT exempted here: anything merely *shaped* like a hex digest.
+ * A 64-character hex string may be a SHA-256 checksum, but it may equally be a hex-encoded
+ * API key, and free text carries no way to tell them apart. Checksums are preserved
+ * through `SAFE_KEYS` below instead, where the field name settles the question.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Metadata fields whose values are identifiers rather than secrets, and which are worth
+ * more in the audit trail than the marginal risk of keeping them.
+ */
+const SAFE_KEYS = new Set([
+  "checksumsha256",
+  "objectkey",
+  "entityid",
+  "id",
+  "bucket",
+  "mimetype",
+]);
+
 /** Field names whose value is dropped outright, whatever it happens to look like. */
 const FORBIDDEN_KEYS = new Set([
   "password",
@@ -44,7 +70,7 @@ export function redactText(value: string): string {
       const digits = match.replace(/-/g, "");
       return digits.length === 13 ? `${digits.slice(0, 5)}-*****-[redacted]` : match;
     })
-    .replace(TOKEN_PATTERN, "[redacted]");
+    .replace(TOKEN_PATTERN, (match) => (UUID_PATTERN.test(match) ? match : "[redacted]"));
 }
 
 /**
@@ -66,9 +92,21 @@ export function redact(value: unknown, depth = 0): unknown {
   if (typeof value === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-      result[key] = FORBIDDEN_KEYS.has(key.toLowerCase())
-        ? "[redacted]"
-        : redact(nested, depth + 1);
+      const lowered = key.toLowerCase();
+
+      if (FORBIDDEN_KEYS.has(lowered)) {
+        result[key] = "[redacted]";
+        continue;
+      }
+
+      // The field name is what distinguishes a checksum or an object key from a
+      // hex-encoded credential, so these are kept whole rather than pattern-matched.
+      if (SAFE_KEYS.has(lowered) && typeof nested === "string") {
+        result[key] = nested;
+        continue;
+      }
+
+      result[key] = redact(nested, depth + 1);
     }
     return result;
   }

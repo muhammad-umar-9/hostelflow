@@ -70,7 +70,11 @@ export function detectMimeType(bytes: Uint8Array): string | null {
 }
 
 export interface UploadCandidate {
-  declaredMimeType: string;
+  /**
+   * What the browser claimed. Recorded for context only — never trusted, and never a
+   * reason to reject on its own.
+   */
+  declaredMimeType?: string;
   sizeBytes: number;
   bytes: Uint8Array;
   maxBytes: number;
@@ -78,7 +82,14 @@ export interface UploadCandidate {
 
 /**
  * Validates an upload before a byte of it reaches storage: non-empty, within the size
- * limit, an allowed type, and contents that match the type claimed.
+ * limit, and provably one of the allowed types by its own leading bytes.
+ *
+ * **The contents decide the type.** An earlier version also required the browser's
+ * declared type to match the detected one, which added no security — the detected type is
+ * what gets stored and served — while rejecting perfectly safe files: a JPEG photographed
+ * on a phone and saved without an extension arrives with `File.type === ""`, and a WebP
+ * named `.jpg` is still a WebP. Those are the exact files a resident sends at 11pm from a
+ * cheap Android handset.
  */
 export function assertAllowedUpload(candidate: UploadCandidate): { mimeType: string } {
   if (candidate.sizeBytes <= 0) {
@@ -91,17 +102,12 @@ export function assertAllowedUpload(candidate: UploadCandidate): { mimeType: str
       413,
     );
   }
-  if (!ALLOWED_UPLOAD_TYPES.has(candidate.declaredMimeType)) {
-    throw new UploadValidationError("Upload a JPG, PNG, WebP or PDF file");
-  }
 
   const detected = detectMimeType(candidate.bytes);
   if (!detected) {
-    throw new UploadValidationError("That file is not a readable image or PDF");
-  }
-  if (detected !== candidate.declaredMimeType) {
-    // Declared one thing, contents say another. Refuse rather than guess which is right.
-    throw new UploadValidationError("The file contents do not match its type");
+    // Covers both "not a recognized format" and "a format we do not accept": either way
+    // the bytes are not a JPEG, PNG, WebP or PDF.
+    throw new UploadValidationError("Upload a JPG, PNG, WebP or PDF file");
   }
 
   return { mimeType: detected };

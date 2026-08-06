@@ -36,6 +36,18 @@ describe("redacting free text", () => {
     expect(redactText(text)).toBe(text);
   });
 
+  it("keeps object-key UUIDs, which an investigator needs and which grant nothing", () => {
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    expect(redactText(`opened ${uuid}`)).toContain(uuid);
+  });
+
+  it("still redacts a hex-shaped string in free text, where it could be a credential", () => {
+    // Free text carries no way to tell a checksum from a hex-encoded API key, so the
+    // cautious answer wins. Checksums survive through the metadata path below instead.
+    const digest = "a".repeat(64);
+    expect(redactText(`checksum ${digest}`)).not.toContain(digest);
+  });
+
   it("leaves a phone number readable, since staff need it", () => {
     expect(redactText("called 0300 1234567")).toContain("0300 1234567");
   });
@@ -71,6 +83,19 @@ describe("redacting structured metadata", () => {
     expect(result.resident.cnic).toBe("[redacted]");
     expect(result.resident.name).toBe("Ali Raza");
     expect(String(result.documents[0].note)).not.toContain("7654321");
+  });
+
+  it("keeps checksums and object keys, which the field name identifies as safe", () => {
+    const result = redact({
+      checksumSha256: "a".repeat(64),
+      objectKey: "hostel/abc/cnic_front/550e8400-e29b-41d4-a716-446655440000.jpg",
+      accessToken: "a".repeat(64),
+    }) as Record<string, unknown>;
+
+    expect(result.checksumSha256).toBe("a".repeat(64));
+    expect(String(result.objectKey)).toContain("550e8400");
+    // Same value, different field name, opposite outcome — the name is the signal.
+    expect(result.accessToken).toBe("[redacted]");
   });
 
   it("preserves the shape of ordinary values", () => {

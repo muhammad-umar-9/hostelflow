@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { MembershipRole, StoredObjectKind } from "@/lib/generated/prisma/enums";
-import { recordAudit, requestContext } from "@/lib/server/audit";
+import { requestContext } from "@/lib/server/audit";
 import {
   hasPermission,
   requireMembership,
@@ -101,29 +101,21 @@ export async function GET(
     const context = await requestContext();
 
     // Recorded before streaming, so an aborted download is still an access that happened.
-    await prisma.$transaction(async (tx) => {
-      await tx.documentAccessLog.create({
-        data: {
-          objectId: object.id,
-          userId: user.id,
-          action: "download",
-          ipAddress: context.ipAddress,
-        },
-      });
-
-      await recordAudit(
-        {
-          action: "document.viewed",
-          entityType: "StoredObject",
-          entityId: object.id,
-          hostelId: membership.hostelId,
-          actorUserId: user.id,
-          summary: `Opened a ${object.kind.toLowerCase().replace(/_/g, " ")}`,
-          metadata: { kind: object.kind },
-          ...context,
-        },
-        tx,
-      );
+    //
+    // Only DocumentAccessLog, deliberately. Writing an audit_log row per view as well
+    // recorded the same fact twice, and audit_log carries an append-only trigger that
+    // makes its rows permanently undeletable. Since `no-store` forces the browser to
+    // refetch on every render and this route has no rate limit, any signed-in user could
+    // grow an unprunable table without bound simply by opening a document repeatedly.
+    // DocumentAccessLog answers the same question — who opened what, when, from where —
+    // and can be pruned. Audit_log stays for state changes.
+    await prisma.documentAccessLog.create({
+      data: {
+        objectId: object.id,
+        userId: user.id,
+        action: "download",
+        ipAddress: context.ipAddress,
+      },
     });
 
     const stream = await getPrivateObjectStream(object.objectKey);
