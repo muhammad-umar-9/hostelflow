@@ -159,6 +159,7 @@ CREATE TABLE "hostel_membership" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "revokedAt" TIMESTAMP(3),
+    "activeUserId" TEXT,
 
     CONSTRAINT "hostel_membership_pkey" PRIMARY KEY ("id")
 );
@@ -392,7 +393,7 @@ CREATE TABLE "invoice" (
     "status" "InvoiceStatus" NOT NULL DEFAULT 'DRAFT',
     "number" TEXT NOT NULL,
     "periodMonth" TIMESTAMP(3),
-    "monthlyKey" TIMESTAMP(3),
+    "monthlyKey" VARCHAR(7),
     "issuedAt" TIMESTAMP(3),
     "dueDate" TIMESTAMP(3) NOT NULL,
     "totalPkr" INTEGER NOT NULL DEFAULT 0,
@@ -666,7 +667,7 @@ CREATE INDEX "hostel_membership_userId_idx" ON "hostel_membership"("userId");
 CREATE INDEX "hostel_membership_hostelId_role_idx" ON "hostel_membership"("hostelId", "role");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "hostel_membership_hostelId_userId_key" ON "hostel_membership"("hostelId", "userId");
+CREATE UNIQUE INDEX "hostel_membership_hostelId_activeUserId_key" ON "hostel_membership"("hostelId", "activeUserId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "floor_hostelId_level_key" ON "floor"("hostelId", "level");
@@ -918,7 +919,7 @@ ALTER TABLE "resident_document" ADD CONSTRAINT "resident_document_residentId_fke
 ALTER TABLE "resident_document" ADD CONSTRAINT "resident_document_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "stored_object"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "document_access_log" ADD CONSTRAINT "document_access_log_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "stored_object"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "document_access_log" ADD CONSTRAINT "document_access_log_objectId_fkey" FOREIGN KEY ("objectId") REFERENCES "stored_object"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "admission" ADD CONSTRAINT "admission_hostelId_fkey" FOREIGN KEY ("hostelId") REFERENCES "hostel"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1128,3 +1129,68 @@ CREATE TRIGGER document_access_log_no_update
 CREATE TRIGGER document_access_log_no_delete
   BEFORE DELETE ON "document_access_log"
   FOR EACH ROW EXECUTE FUNCTION hostelflow_append_only();
+
+-- TRUNCATE does not fire row-level triggers. Without these statement-level
+-- triggers a single `TRUNCATE audit_log` erased the entire trail while the
+-- "append-only" guarantee above looked intact — which is worse than having no
+-- guarantee, because it is trusted.
+CREATE TRIGGER audit_log_no_truncate
+  BEFORE TRUNCATE ON "audit_log"
+  FOR EACH STATEMENT EXECUTE FUNCTION hostelflow_append_only();
+
+CREATE TRIGGER document_access_log_no_truncate
+  BEFORE TRUNCATE ON "document_access_log"
+  FOR EACH STATEMENT EXECUTE FUNCTION hostelflow_append_only();
+
+-- ---------------------------------------------------------------------------
+-- One live claim per bed, across both kinds of claim.
+--
+-- `bed_allocation.activeBedId` and `bed_hold.activeBedId` are each unique, so a
+-- bed cannot have two live allocations or two live holds. But the two mirrors
+-- sit in different tables, and a unique index cannot span tables — so nothing
+-- stopped a bed from being held for one enquiry and allocated to a different
+-- resident at the same moment. That is the exact failure the mirror columns
+-- exist to prevent, one level up.
+--
+-- Enforced here rather than in the application for the same reason as the rest:
+-- an application check reads, decides, then writes, and two requests can both
+-- read "no conflicting claim" before either writes.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION hostelflow_bed_claim_exclusive() RETURNS trigger AS $$
+DECLARE
+  conflicting_kind text;
+BEGIN
+  IF NEW."activeBedId" IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_TABLE_NAME = 'bed_allocation' THEN
+    SELECT 'hold' INTO conflicting_kind
+    FROM "bed_hold"
+    WHERE "activeBedId" = NEW."activeBedId"
+    LIMIT 1;
+  ELSE
+    SELECT 'allocation' INTO conflicting_kind
+    FROM "bed_allocation"
+    WHERE "activeBedId" = NEW."activeBedId"
+    LIMIT 1;
+  END IF;
+
+  IF conflicting_kind IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Bed % already has a live %', NEW."activeBedId", conflicting_kind
+      USING ERRCODE = 'unique_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER bed_allocation_excludes_hold
+  BEFORE INSERT OR UPDATE OF "activeBedId" ON "bed_allocation"
+  FOR EACH ROW EXECUTE FUNCTION hostelflow_bed_claim_exclusive();
+
+CREATE TRIGGER bed_hold_excludes_allocation
+  BEFORE INSERT OR UPDATE OF "activeBedId" ON "bed_hold"
+  FOR EACH ROW EXECUTE FUNCTION hostelflow_bed_claim_exclusive();

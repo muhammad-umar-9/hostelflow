@@ -202,7 +202,16 @@ model HostelMembership {
   updatedAt DateTime  @updatedAt
   revokedAt DateTime?
 
-  @@unique([hostelId, userId])
+  /// Mirrors `userId` while the membership is live, NULL once revoked — the same pattern
+  /// used for beds, admissions and CNICs.
+  ///
+  /// A plain unique on (hostelId, userId) would allow only one row per person per hostel,
+  /// so re-hiring a manager meant updating the revoked row in place and overwriting the
+  /// record of what they previously held and when it was withdrawn. Membership history is
+  /// exactly what an audit asks about after an incident.
+  activeUserId String?
+
+  @@unique([hostelId, activeUserId])
   @@index([userId])
   @@index([hostelId, role])
   @@map("hostel_membership")
@@ -553,7 +562,14 @@ model ResidentDocument {
 model DocumentAccessLog {
   id       String   @id @default(cuid())
   objectId String
-  object   StoredObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  /// Restrict, not Cascade.
+  ///
+  /// Cascade sent the delete into this table, whose own BEFORE DELETE trigger refuses the
+  /// write, so removing any document that had ever been opened failed with a confusing
+  /// "append-only" error naming the wrong table. Restrict states the real rule directly:
+  /// a document that has been read cannot be hard-deleted, because its access history
+  /// must outlive it. Documents are retired by setting `StoredObject.deletedAt`.
+  object   StoredObject @relation(fields: [objectId], references: [id], onDelete: Restrict)
   userId   String?
   action   String
   ipAddress String?
@@ -674,10 +690,15 @@ model Invoice {
 
   /// First day of the billed month, for MONTHLY_RENT invoices only.
   periodMonth DateTime?
-  /// Mirrors `periodMonth` for MONTHLY_RENT invoices, NULL otherwise. Makes monthly
-  /// invoice generation idempotent: rerunning it cannot create a second invoice for
-  /// the same admission and month.
-  monthlyKey  DateTime?
+  /// The billed month as `YYYY-MM`, for MONTHLY_RENT invoices; NULL otherwise. This is
+  /// what makes monthly generation idempotent, together with the unique below.
+  ///
+  /// Deliberately a string, not a timestamp. As a `DateTime` the uniqueness depended on
+  /// exact millisecond equality, so two code paths computing "the first of the month" in
+  /// different time zones — or one of them a millisecond apart — would both insert and
+  /// bill the resident twice. A month is not an instant, and storing it as one invited
+  /// precisely the bug the constraint exists to prevent.
+  monthlyKey  String?   @db.VarChar(7)
 
   issuedAt DateTime?
   dueDate  DateTime

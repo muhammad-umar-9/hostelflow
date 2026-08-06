@@ -34,12 +34,29 @@ const globalForPrisma = globalThis as typeof globalThis & {
   hostelflowPrisma?: PrismaClient;
 };
 
-export const prisma: PrismaClient =
-  globalForPrisma.hostelflowPrisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.hostelflowPrisma = prisma;
+function client(): PrismaClient {
+  globalForPrisma.hostelflowPrisma ??= createPrismaClient();
+  return globalForPrisma.hostelflowPrisma;
 }
+
+/**
+ * Built on first use rather than at import, and reached through a proxy so call sites
+ * still read `prisma.resident.findMany()`.
+ *
+ * That is not tidiness. `next build` imports every route module to collect its
+ * configuration, so constructing the client at import time makes a production build
+ * require a live DATABASE_URL and a real AUTH_SECRET — which the Dockerfile builder and
+ * CI deliberately do not provide, and which a build machine has no business holding. It
+ * also defeats the whole point of validating the environment lazily in env.ts.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, property) {
+    const instance = client();
+    const value = Reflect.get(instance, property, instance) as unknown;
+    // Methods such as $transaction need their original `this`.
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});
 
 /**
  * The type of the client handed to a function running inside `prisma.$transaction`.

@@ -20,11 +20,23 @@ import { defineConfig } from "prisma/config";
  * genuinely needs a connection fails with Prisma's own message about a missing datasource
  * rather than at config-load time.
  */
+/**
+ * A syntactically valid URL that cannot resolve, used when DATABASE_URL is absent.
+ *
+ * Omitting the datasource entirely was the first attempt, and it broke `migrate diff`
+ * silently: the command exited zero having emitted no SQL at all, which is how an empty
+ * migration file nearly got committed. A placeholder keeps schema-only commands working,
+ * and any command that genuinely needs a connection fails with a resolution error naming
+ * this host, which says what is wrong.
+ */
+const UNSET_PLACEHOLDER =
+  "postgresql://unset:unset@database-url-is-not-set.invalid:5432/unset";
+
 const databaseUrl = process.env.DATABASE_URL;
 
 export default defineConfig({
   schema: path.join("prisma", "schema.prisma"),
-  ...(databaseUrl ? { datasource: { url: databaseUrl } } : {}),
+  datasource: { url: databaseUrl ?? UNSET_PLACEHOLDER },
   migrations: {
     path: path.join("prisma", "migrations"),
     seed: "tsx prisma/seed.ts",
