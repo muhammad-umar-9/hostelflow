@@ -78,9 +78,33 @@ tracked below.
 ## Uploads
 
 - Allowed: JPEG, PNG, WebP, PDF. Nothing else.
-- Validated by file signature; a declared type that disagrees with the bytes is refused.
-- 8 MB limit in the app, 10 MB in Caddy, so an oversized body is rejected at the edge.
+- **The bytes decide the type.** The file signature is read and the detected type is what
+  gets stored and served. The browser's declared type is not consulted: it is
+  attacker-controlled, so requiring it to match added no security while rejecting honest
+  files — a phone photo saved without an extension arrives with an empty type.
+- **The size limit is enforced against the stream, not the header.** Bytes are counted as
+  they arrive and the connection is cancelled past the cap. A `Content-Length` check alone
+  was bypassable: a chunked request sends no such header, and a junk value parses to NaN.
+- 8 MB in the app, 10 MB in Caddy, so an oversized body is also rejected at the edge.
 - Random keys, SHA-256 recorded, upload audited.
+- A failed transaction removes the object it had already written, so a CNIC image is never
+  left in the bucket with no row pointing at it.
+- Residents may upload payment proofs and nothing else. Every other kind needs staff with
+  `residents.write`.
+
+## What is audited, and what is only logged
+
+Two tables, deliberately different:
+
+| Table                 | Contents                                      | Deletable                       |
+| --------------------- | --------------------------------------------- | ------------------------------- |
+| `audit_log`           | State changes and privilege-sensitive actions | **Never** — append-only trigger |
+| `document_access_log` | Who opened which document, when, from where   | Yes, prunable                   |
+
+Document _reads_ are recorded only in `document_access_log`. Writing an audit row per view
+as well stored the same fact twice, and because audit rows cannot be deleted, any signed-in
+user could have grown an unprunable table without bound simply by reopening one document.
+The access log answers the same question and can be pruned.
 
 ## Network
 
