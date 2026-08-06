@@ -31,6 +31,24 @@ describe("redacting free text", () => {
     expect(redactText(`session ${token}`)).not.toContain(token);
   });
 
+  it("removes a standard-base64 secret, the format AUTH_SECRET is generated in", () => {
+    // `openssl rand -base64 48`. The + and / characters used to split it into runs too
+    // short to match, so the secret survived redaction in most cases.
+    const secret = "MRcSkCxOxfp+DPnpwA5kCKKSh1dPMutqD6rTXmmShQ42+VmEBSeu/utcIRwXA3yj";
+    const redacted = redactText(`AUTH_SECRET=${secret}`);
+
+    expect(redacted).not.toContain(secret);
+    // No fragment long enough to be useful survives either.
+    for (const run of secret.split(/[+/=]/)) {
+      if (run.length >= 8) expect(redacted).not.toContain(run);
+    }
+  });
+
+  it("removes base64url secrets too", () => {
+    const secret = "MRcSkCxOxfp-DPnpwA5kCKKSh1dPMutqD6rTXmmShQ42_VmEBSeuSutcIRwXA3yj";
+    expect(redactText(`token ${secret}`)).not.toContain(secret);
+  });
+
   it("leaves ordinary text and rupee amounts alone", () => {
     const text = "Approved Rs 10,800 for Room 101 Bed D";
     expect(redactText(text)).toBe(text);

@@ -7,6 +7,7 @@ import {
   requireMembership,
   statusForError,
   AuthorizationError,
+  type Permission,
 } from "@/lib/server/authz";
 import { prisma } from "@/lib/server/db";
 import { serverEnv } from "@/lib/server/env";
@@ -55,6 +56,29 @@ const STAFF_UPLOADABLE_KINDS = new Set<StoredObjectKind>([
 const RESIDENT_UPLOADABLE_KINDS = new Set<StoredObjectKind>([
   StoredObjectKind.PAYMENT_PROOF,
 ]);
+
+/**
+ * The permission each kind demands of staff.
+ *
+ * Gating every kind on `residents.write` alone let a manager whose owner had switched off
+ * `police.update` still attach a police acknowledgement, and one without `checkout.start`
+ * still attach damage evidence. The download route already maps kind to permission; these
+ * two routes now agree.
+ */
+const KIND_PERMISSION: Record<StoredObjectKind, Permission> = {
+  [StoredObjectKind.RESIDENT_PHOTO]: "residents.write",
+  [StoredObjectKind.CNIC_FRONT]: "residents.write",
+  [StoredObjectKind.CNIC_BACK]: "residents.write",
+  [StoredObjectKind.GUARDIAN_CNIC]: "residents.write",
+  [StoredObjectKind.STUDENT_CARD]: "residents.write",
+  [StoredObjectKind.PAYMENT_PROOF]: "payments.record",
+  [StoredObjectKind.POLICE_ACKNOWLEDGEMENT]: "police.update",
+  [StoredObjectKind.DAMAGE_PHOTO]: "checkout.start",
+  // Server-generated, never uploaded through this route; listed so the map stays total
+  // and adding a kind to the enum is a compile error here rather than a silent gap.
+  [StoredObjectKind.RECEIPT_PDF]: "residents.write",
+  [StoredObjectKind.SETTLEMENT_PDF]: "residents.write",
+};
 
 function isUploadableKind(value: string): value is StoredObjectKind {
   return STAFF_UPLOADABLE_KINDS.has(value as StoredObjectKind);
@@ -124,9 +148,20 @@ export async function POST(request: Request) {
     const maxBytes = serverEnv().MAX_UPLOAD_BYTES;
     const raw = await readLimitedBody(request, maxBytes + MULTIPART_OVERHEAD);
 
-    const form = await new Response(raw, {
-      headers: { "content-type": request.headers.get("content-type") ?? "" },
-    }).formData();
+    // `formData()` throws a bare TypeError when the Content-Type is missing, wrong, or the
+    // multipart body is truncated — which is what a phone upload on a dropping connection
+    // produces. Left unhandled it surfaced as a 500 and an error in the server log, when
+    // it is simply a malformed request.
+    let form: FormData;
+    try {
+      form = await new Response(raw, {
+        headers: { "content-type": request.headers.get("content-type") ?? "" },
+      }).formData();
+    } catch {
+      throw new UploadValidationError(
+        "The upload was incomplete or malformed. Try again.",
+      );
+    }
 
     const file = form.get("file");
     const kindValue = String(form.get("kind") ?? "");
@@ -141,7 +176,7 @@ export async function POST(request: Request) {
     // Authorization depends on the kind, so it happens once the kind is known.
     if (membership.role === MembershipRole.RESIDENT) {
       if (!RESIDENT_UPLOADABLE_KINDS.has(kindValue)) throw new AuthorizationError();
-    } else if (!hasPermission(membership, "residents.write")) {
+    } else if (!hasPermission(membership, KIND_PERMISSION[kindValue])) {
       throw new AuthorizationError();
     }
 

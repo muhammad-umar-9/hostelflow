@@ -120,26 +120,36 @@ export async function requireMembership(options?: {
   // comparing afterwards. The schema's @@unique([hostelId, userId]) permits a user to
   // belong to several hostels, so an unordered findFirst would pick a nondeterministic
   // one and then 404 a hostel the user is genuinely a member of.
+  // Both the hostel and the acceptable roles are pushed into the query. Selecting a
+  // membership first and checking its role afterwards meant a user who is a manager in one
+  // hostel and an owner in another could be refused an owner action, because the older
+  // membership was picked before the role was ever considered.
   const membership = await prisma.hostelMembership.findFirst({
     where: {
       userId: user.id,
       revokedAt: null,
       ...(options?.hostelId ? { hostelId: options.hostelId } : {}),
+      ...(options?.roles ? { role: { in: [...options.roles] } } : {}),
     },
-    // Deterministic when no hostel is named and the user has more than one membership:
-    // the oldest wins, consistently, rather than whatever the planner returns first.
+    // Deterministic when the filters still leave more than one: the oldest wins,
+    // consistently, rather than whatever the planner happens to return first.
     orderBy: { createdAt: "asc" },
     select: { hostelId: true, role: true, permissions: true },
   });
 
   if (!membership) {
-    // Named hostel with no membership reads as missing, not forbidden, so this cannot be
-    // used to discover which hostels exist.
-    if (options?.hostelId) throw new NotFoundError();
-    throw new AuthorizationError("Your account is not linked to a hostel");
-  }
+    // Distinguishing the reasons requires a second query, and only when the first missed.
+    const anyMembership = await prisma.hostelMembership.findFirst({
+      where: { userId: user.id, revokedAt: null },
+      select: { id: true },
+    });
 
-  if (options?.roles && !options.roles.includes(membership.role)) {
+    if (!anyMembership) {
+      throw new AuthorizationError("Your account is not linked to a hostel");
+    }
+    // A named hostel the user is not in reads as missing, not forbidden, so this cannot
+    // be used to discover which hostels exist.
+    if (options?.hostelId) throw new NotFoundError();
     throw new AuthorizationError();
   }
 

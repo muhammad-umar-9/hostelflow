@@ -56,6 +56,11 @@ export async function GET(
         receipts: { select: { residentId: true } },
         policeDocuments: { select: { residentId: true } },
         damageDeductions: { select: { checkout: { select: { residentId: true } } } },
+        // Whoever uploaded it can always open it. Without this a resident 404s on the
+        // payment proof they uploaded seconds ago: the relation rows that establish
+        // ownership do not exist until the proof form is actually submitted, and the
+        // upload happens first.
+        uploadedByUserId: true,
       },
     });
 
@@ -92,8 +97,13 @@ export async function GET(
         ].filter((value): value is string => Boolean(value)),
       );
 
-      // No resident owner recorded means it is a staff document; a resident has no claim.
-      if (!self || ownerIds.size === 0 || !ownerIds.has(self.id)) {
+      const isOwner = Boolean(self && ownerIds.has(self.id));
+      // A staff-uploaded document has a staff uploader, so this grants a resident nothing
+      // beyond what they themselves put there.
+      const isUploader = object.uploadedByUserId === user.id;
+
+      // No claim through a relation and not the uploader means it is someone else's.
+      if (!isOwner && !isUploader) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
     }
