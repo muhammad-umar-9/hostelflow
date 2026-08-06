@@ -31,7 +31,16 @@ export default defineConfig({
   webServer: {
     command: `npm run build && npx next start --port ${PORT}`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    /**
+     * Off by default, including locally.
+     *
+     * `reuseExistingServer` skips the whole command — build included — whenever something
+     * already answers on the port. A second local run therefore tested the *previous*
+     * build while appearing to test the current code, which is the failure mode a smoke
+     * suite can least afford. Set PLAYWRIGHT_REUSE_SERVER=1 to opt into the fast loop
+     * when you know the running server is current.
+     */
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
     timeout: 300_000,
     stdout: "pipe",
     stderr: "pipe",

@@ -9,6 +9,7 @@ import { LoadingScreen } from "@/components/layout/loading-screen";
 import { useHostel } from "@/components/providers/hostel-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { formatPKR } from "@/lib/formatters";
 import { getResident } from "@/lib/mock-data/selectors";
@@ -20,7 +21,18 @@ function SuccessContent() {
   if (!data) return <LoadingScreen />;
 
   const resident = getResident(data, params.get("resident") || "");
-  if (!resident) return <LoadingScreen />;
+  // Not a loading state: with no `?resident=` there is nothing still to load, and
+  // returning LoadingScreen left the page spinning forever with no text and no way out —
+  // which is what a bookmarked, refreshed or shared link produced. Every other detail
+  // screen already answers a missing record with an EmptyState; this one now matches.
+  if (!resident) {
+    return (
+      <EmptyState
+        title="Admission not found"
+        description="Open this page from the end of the admission wizard, or find the resident in the directory."
+      />
+    );
+  }
 
   const amount = Number(params.get("amount") || 0);
   const balance = Number(params.get("balance") || 0);

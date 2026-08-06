@@ -33,6 +33,30 @@ const STAFF_ROUTES: Route[] = [
   { path: "/settings", heading: /^Settings$/ },
 ];
 
+/**
+ * The detail screens, which read their record from a query parameter.
+ *
+ * These were missing while this file claimed to cover "every main route" — and they are
+ * the ones most exposed by the Next.js 15 to 16 upgrade, because every one of them calls
+ * `useSearchParams()`. Exactly the wrong seven to leave out.
+ *
+ * Each matcher accepts the record screen or the not-found screen: the point of a smoke
+ * test is that the route renders a coherent page and throws no exception, and the demo
+ * ids are fixtures rather than guarantees.
+ */
+const DETAIL_ROUTES: Route[] = [
+  { path: "/admissions", text: /New admission/i },
+  { path: "/admissions/success", text: /receipt|admission|not found/i },
+  { path: "/enquiries/detail?id=E-41", text: /Enquiry/i },
+  { path: "/residents/detail?id=R1001", text: /Resident profile|Resident not found/i },
+  {
+    path: "/payments/proofs/detail?id=PP-210",
+    text: /Review payment proof|Proof not found/i,
+  },
+  { path: "/receipts/detail?id=RC-1", text: /Receipt/i },
+  { path: "/checkout?resident=R1001", text: /Checkout|Choose a resident first/i },
+];
+
 const RESIDENT_ROUTES: Route[] = [
   // The resident home renders no <h1> today; see docs/frontend-audit.md.
   { path: "/resident-portal", text: /August rent/i },
@@ -48,7 +72,7 @@ function collectPageErrors(page: Page): string[] {
   return errors;
 }
 
-for (const route of [...STAFF_ROUTES, ...RESIDENT_ROUTES]) {
+for (const route of [...STAFF_ROUTES, ...DETAIL_ROUTES, ...RESIDENT_ROUTES]) {
   test(`${route.path} renders`, async ({ page }) => {
     const errors = collectPageErrors(page);
 
