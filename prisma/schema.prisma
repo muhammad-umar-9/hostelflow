@@ -150,6 +150,17 @@ model Hostel {
   jazzCashLabel    String?
   easyPaisaLabel   String?
 
+  /// Monotonic counters for human-facing document numbers, incremented atomically inside
+  /// the transaction that issues the document.
+  ///
+  /// Deriving the next number from `count(*)` would race: two admissions running at the
+  /// same moment both read the same count, both build INV-00007, and one dies on the
+  /// unique index. Failing is better than duplicating, but a legitimate concurrent
+  /// admission should not fail at all. `UPDATE ... SET seq = seq + 1 RETURNING seq` takes
+  /// a row lock, so the second transaction waits and receives the next value.
+  invoiceSequence Int @default(0)
+  receiptSequence Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
