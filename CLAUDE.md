@@ -16,6 +16,17 @@ the Next.js app. Remote: `https://github.com/muhammad-umar-9/hostelflow` (public
 `main` holds reviewed work only. The unmodified Claude Design export is tagged
 `baseline-export`.
 
+**`main` is protected on GitHub.** Direct pushes and force pushes are refused; changes
+arrive through a pull request whose branch is up to date and whose four CI checks pass:
+
+- Format, lint, types, unit tests, build
+- Database integration tests
+- Playwright smoke tests
+- Production image builds and can start
+
+Admin enforcement is off, so the owner keeps an escape hatch, and no approving review is
+required — review happens through `/code-review`, not GitHub approvals.
+
 ## Commands
 
 ```bash
@@ -91,9 +102,10 @@ For every milestone or meaningful unit of work:
 | `ops/<deployment-work>`  | Deployment and infrastructure |
 | `hotfix/<urgent-fix>`    | Urgent production fixes       |
 
-Current milestone branch: **`foundation/backend-integration`**
+Current milestone branch: **`feature/admission-vertical-slice`** (foundation merged into
+`main` as `2f47a21`).
 
-Expected later branches: `feature/admission-vertical-slice`,
+Expected later branches: `feature/payments-and-receipts`,
 `feature/payments-and-receipts`, `feature/enquiries-and-bed-holds`,
 `feature/police-verification`, `feature/checkout-and-deposits`,
 `feature/resident-portal`, `feature/pwa-offline-support`, `ops/production-hardening`,
@@ -112,6 +124,23 @@ Expected later branches: `feature/admission-vertical-slice`,
 - Production deployments must originate from reviewed `main` or a reviewed release tag.
 - Emergency work must still use a `hotfix/` branch and pass an expedited review.
 - Preserve unrelated user changes and stop if they conflict with the current task.
+
+### Stacked pull requests
+
+Learned the hard way while merging the foundation milestone: **GitHub does not always
+retarget a stacked PR's base when the PR below it merges.** All four PRs reported `MERGED`
+while `main` had received only the first; the other three had merged into their own base
+branches, leaving 54 files' worth of work off `main`.
+
+So when merging a stack, after every merge:
+
+1. Confirm the next PR's base actually changed to `main` (`gh pr view N --json baseRefName`).
+2. Retarget it explicitly if it did not (`gh pr edit N --base main`).
+3. After the last merge, verify by content rather than by badge:
+   `git diff --stat main <verified-tip>` must be empty.
+
+A green `MERGED` badge says the branch was merged somewhere. It does not say it was merged
+into `main`.
 
 ## Local environment
 

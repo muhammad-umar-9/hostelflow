@@ -11,9 +11,15 @@ name: CI
 # branch may merge. GitHub provides a throwaway PostgreSQL service container, so here the
 # tests actually run, on every push, publicly.
 
+# Pull requests and main only, deliberately.
+#
+# `push: ["**"]` alongside `pull_request` ran every job twice for any branch with an open
+# PR — eight jobs where four were needed, on an account where Actions usage is metered.
+# Since main is protected and all work arrives through a pull request, the PR event is the
+# one that matters; the main trigger covers the merge commit itself.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
