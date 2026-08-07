@@ -105,18 +105,37 @@ export async function recordAudit(
 /**
  * Best-effort client details for an audited request.
  *
- * `x-forwarded-for` is only trustworthy because Caddy is the single public entry point
- * and rewrites it; it would be spoofable if the app were exposed directly.
+ * Reading the FIRST entry of `x-forwarded-for` was safe only while Caddy was the single
+ * public entry point, rewriting the header wholesale. Behind Cloudflare it is not:
+ * Cloudflare *appends* the real client address to whatever the caller already sent, so a
+ * request carrying `X-Forwarded-For: 1.2.3.4` arrives as `1.2.3.4, <real ip>` and the
+ * first entry is a value the attacker chose. Audit rows naming an address of the
+ * attacker's choosing are worse than audit rows naming none.
+ *
+ * `CF-Connecting-IP` is set by Cloudflare and overwritten on every request, so a client
+ * cannot forge it. It is preferred; otherwise the LAST entry of `x-forwarded-for` is
+ * taken, that being the one appended by the proxy nearest to us rather than the one the
+ * client supplied.
  */
 export async function requestContext(): Promise<{
   ipAddress: string | null;
   userAgent: string | null;
 }> {
   const headerList = await headers();
-  const forwarded = headerList.get("x-forwarded-for");
+
+  const cloudflare = headerList.get("cf-connecting-ip")?.trim();
+  const realIp = headerList.get("x-real-ip")?.trim();
+  const forwarded = headerList
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const ipAddress =
+    cloudflare || realIp || (forwarded?.length ? forwarded[forwarded.length - 1] : null);
 
   return {
-    ipAddress: forwarded ? (forwarded.split(",")[0]?.trim() ?? null) : null,
+    ipAddress: ipAddress || null,
     userAgent: headerList.get("user-agent"),
   };
 }

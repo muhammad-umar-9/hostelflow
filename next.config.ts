@@ -7,6 +7,13 @@ import type { NextConfig } from "next";
  * front of it — during a local production check, for example.
  */
 const securityHeaders = [
+  // Set by the application, not only by the proxy. Caddy emitted this when it was the
+  // entry point, but on a shared server the front end is a Cloudflare tunnel and the app
+  // must carry its own guarantees rather than assume something upstream adds them.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=31536000; includeSubDomains",
+  },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
