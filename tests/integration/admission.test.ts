@@ -420,6 +420,103 @@ describe.skipIf(!hasDatabase)("admitting a resident", () => {
     expect(attached).toBe(1);
   });
 
+  it("bills a configured one-off OTHER charge instead of ignoring it", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+    const prisma = db();
+
+    await prisma.chargeType.create({
+      data: {
+        hostelId: hostel.hostelId,
+        code: "ADMISSION_FEE",
+        label: "Admission fee",
+        kind: "OTHER",
+        defaultAmountPkr: 500,
+        oneTime: true,
+      },
+    });
+
+    const result = await admitResident(
+      admissionInput(hostel.bedIds[0], {
+        payment: { method: "CASH", amountPkr: 11_300, paidAt: new Date() },
+      }),
+      context as never,
+    );
+
+    // 7,500 + 3,000 + 300 + 500. Previously the extra charge was silently uncollected.
+    expect(result.totalPkr).toBe(11_300);
+  });
+
+  it("refuses to guess between two active charges of the same kind", async () => {
+    const { admitResident, ChargeConfigurationError } =
+      await import("@/lib/server/admissions");
+    const prisma = db();
+
+    // Uniqueness is on (hostelId, code), so this is a state the schema permits.
+    await prisma.chargeType.create({
+      data: {
+        hostelId: hostel.hostelId,
+        code: "SECURITY_DEPOSIT_OLD",
+        label: "Old deposit",
+        kind: "SECURITY_DEPOSIT",
+        defaultAmountPkr: 5000,
+        oneTime: true,
+      },
+    });
+
+    await expect(
+      admitResident(admissionInput(hostel.bedIds[0]), context as never),
+    ).rejects.toBeInstanceOf(ChargeConfigurationError);
+  });
+
+  it("carries a returning resident's portal login to their new stay", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+    const prisma = db();
+
+    const first = admissionInput(hostel.bedIds[0]);
+    const firstResult = await admitResident(first, context as never);
+
+    // Give them a portal account, then check them out.
+    const portalUser = await prisma.user.create({
+      data: {
+        name: "Ali Raza",
+        email: `resident-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`,
+      },
+    });
+    await prisma.resident.update({
+      where: { id: firstResult.residentId },
+      data: { userId: portalUser.id, status: "FORMER", activeCnicKey: null },
+    });
+    await prisma.admission.update({
+      where: { id: firstResult.admissionId },
+      data: { status: "CLOSED", activeResidentId: null },
+    });
+    await prisma.bedAllocation.updateMany({
+      where: { admissionId: firstResult.admissionId },
+      data: { releasedAt: new Date(), activeBedId: null },
+    });
+    await prisma.bed.update({
+      where: { id: hostel.bedIds[0] },
+      data: { status: "VACANT" },
+    });
+
+    // Same person, same CNIC, returning later.
+    const second = await admitResident(
+      { ...admissionInput(hostel.bedIds[1]), resident: first.resident },
+      context as never,
+    );
+
+    const [previous, current] = await Promise.all([
+      prisma.resident.findUniqueOrThrow({ where: { id: firstResult.residentId } }),
+      prisma.resident.findUniqueOrThrow({ where: { id: second.residentId } }),
+    ]);
+
+    // The login follows the person, so the portal shows the current stay rather than the
+    // one they already left. The previous record survives as history.
+    expect(current.userId).toBe(portalUser.id);
+    expect(previous.userId).toBeNull();
+    expect(previous.status).toBe("FORMER");
+  });
+
   it("refuses a bed belonging to another hostel", async () => {
     const { admitResident } = await import("@/lib/server/admissions");
     const other = await createTestHostel("admit-other");

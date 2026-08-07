@@ -213,7 +213,7 @@ export async function admitResident(
   // revoked payments.approve could still self-verify an EasyPaisa payment that had no
   // proof attached and that nobody had reconciled.
   if (
-    input.payment?.method !== PaymentMethod.CASH &&
+    parsed.payment.method !== PaymentMethod.CASH &&
     !hasPermission(membership, "payments.approve")
   ) {
     throw new AuthorizationError(
@@ -246,9 +246,17 @@ export async function admitResident(
         if (bed.status !== BedStatus.VACANT) throw new BedUnavailableError();
 
         // 2. Charges from configuration. Nothing here comes from the client.
+        //
+        // Ordered by code so the choice is deterministic. Uniqueness is on
+        // (hostelId, code), not on kind, so a hostel can hold two active rows of the same
+        // kind — and an unordered `find` then billed whichever the planner happened to
+        // return first, making the total, and whether a configuration error fired at all,
+        // vary between identical admissions.
         const charges = await tx.chargeType.findMany({
           where: { hostelId: membership.hostelId, active: true },
+          orderBy: { code: "asc" },
         });
+
         /**
          * The configured amount for a charge kind, or 0 when the hostel does not levy it.
          *
@@ -259,14 +267,22 @@ export async function admitResident(
          * Silently not charging Rs 3,000 is the kind of bug an owner discovers at
          * checkout, when they owe a refund for money they never took.
          *
-         * The `oneTime` flag is no longer part of the lookup either: the kind already
-         * identifies the charge, and matching on a secondary flag meant an owner toggling
-         * it made the charge disappear rather than raise anything.
+         * Two active rows of one kind are ambiguous rather than additive: guessing which
+         * one the owner meant is worse than saying so.
          */
         const amountFor = (kind: ChargeKind) => {
-          const charge = charges.find((candidate) => candidate.kind === kind);
-          if (!charge) return 0;
+          const matches = charges.filter((candidate) => candidate.kind === kind);
+          if (matches.length === 0) return 0;
 
+          if (matches.length > 1) {
+            throw new ChargeConfigurationError(
+              `More than one active ${kind.toLowerCase().replace(/_/g, " ")} charge is ` +
+                `configured (${matches.map((match) => match.code).join(", ")}). ` +
+                "Deactivate all but one.",
+            );
+          }
+
+          const charge = matches[0];
           if (charge.defaultAmountPkr === null) {
             throw new ChargeConfigurationError(
               `The "${charge.label}" charge is active but has no amount set. ` +
@@ -276,10 +292,27 @@ export async function admitResident(
           return charge.defaultAmountPkr;
         };
 
+        // Any other one-off charge the owner has configured — an admission fee, a mess
+        // advance. These were being ignored entirely: the calculator accepts them and the
+        // allocation order even ranks them, but nothing ever passed them in, so a
+        // configured charge simply went uncollected.
+        const additionalPkr = charges
+          .filter((charge) => charge.kind === ChargeKind.OTHER && charge.oneTime)
+          .map((charge) => {
+            if (charge.defaultAmountPkr === null) {
+              throw new ChargeConfigurationError(
+                `The "${charge.label}" charge is active but has no amount set. ` +
+                  "Set its amount in settings, or deactivate it.",
+              );
+            }
+            return { label: charge.label, amountPkr: charge.defaultAmountPkr };
+          });
+
         const breakdown = calculateAdmissionCharges({
           monthlyRentPkr: bed.room.roomType.monthlyRentPkr,
           securityDepositPkr: amountFor(ChargeKind.SECURITY_DEPOSIT),
           policeFormPkr: amountFor(ChargeKind.POLICE_FORM),
+          additionalPkr,
         });
 
         // Refused rather than absorbed. Anything tendered above the total had nowhere to go:
@@ -296,7 +329,34 @@ export async function admitResident(
           );
         }
 
-        // 3. Resident. activeCnicKey mirrors the CNIC so the database refuses a second
+        // 3. Resident.
+        //
+        // A returning resident becomes a NEW row on purpose: activeCnicKey is NULL once
+        // somebody is FORMER, so the unique index allows it and the previous stay survives
+        // as history. But they are the same person, and Resident.userId is unique — left
+        // on the old row, the companion portal resolved a returning resident to the stay
+        // they had already left, showing a closed admission and none of their new charges.
+        // The login follows the person to their current stay.
+        const previousStay = await tx.resident.findFirst({
+          where: {
+            hostelId: membership.hostelId,
+            cnicNormalized,
+            status: ResidentStatus.FORMER,
+            userId: { not: null },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, userId: true },
+        });
+
+        if (previousStay?.userId) {
+          // Cleared before it is reassigned, since the column is unique.
+          await tx.resident.update({
+            where: { id: previousStay.id },
+            data: { userId: null },
+          });
+        }
+
+        //    activeCnicKey mirrors the CNIC so the database refuses a second
         //    active resident with the same identity number in this hostel.
         const resident = await tx.resident.create({
           data: {
@@ -304,6 +364,7 @@ export async function admitResident(
             fullName: parsed.resident.fullName,
             cnicNormalized,
             activeCnicKey: cnicNormalized,
+            userId: previousStay?.userId ?? null,
             dateOfBirth: parsed.resident.dateOfBirth ?? null,
             phone,
             addressLine: parsed.resident.addressLine,

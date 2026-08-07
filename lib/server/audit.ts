@@ -135,8 +135,32 @@ export async function optionalRequestContext(): Promise<{
 }> {
   try {
     return await requestContext();
-  } catch {
-    // No request scope. Not an error condition — just nothing to record.
-    return { ipAddress: null, userAgent: null };
+  } catch (error) {
+    // Only "there is no request here" is tolerated.
+    //
+    // A bare catch also swallowed Next's DynamicServerError, which `headers()` throws
+    // during static generation precisely so the framework knows to render that route
+    // dynamically. Absorbing it would leave a Server Component that audits a read
+    // silently prerendered as static — served with somebody else's data baked in. It also
+    // hid genuine header failures behind a shrug.
+    if (isMissingRequestScope(error)) return { ipAddress: null, userAgent: null };
+    throw error;
   }
+}
+
+/**
+ * True when `headers()` failed because nothing is serving a request — a script, a
+ * scheduled job or a test — rather than because Next is signalling a dynamic bailout.
+ */
+function isMissingRequestScope(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  // Next marks the static-generation bailout with a digest; that one must propagate.
+  const digest = (error as Error & { digest?: unknown }).digest;
+  if (typeof digest === "string" && digest.startsWith("DYNAMIC_SERVER_USAGE")) {
+    return false;
+  }
+  if (error.name === "DynamicServerError") return false;
+
+  return /outside a request scope/i.test(error.message);
 }
