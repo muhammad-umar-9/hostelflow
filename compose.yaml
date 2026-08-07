@@ -24,10 +24,29 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    # Named variables rather than `env_file: .env`, which handed every service the whole
+    # file — including the tunnel token, which grants takeover of the public hostname and
+    # which the app has no use for. Any env disclosure should leak the app's own secrets,
+    # not the front door's.
     environment:
       NODE_ENV: production
       PORT: "3000"
+      APP_URL: ${APP_URL}
+      APP_DOMAIN: ${APP_DOMAIN}
+      AUTH_SECRET: ${AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_PRIVATE: ${MINIO_BUCKET_PRIVATE}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-8388608}
+      SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-120}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      # Which front end sits in front of us, and therefore which client-address header can
+      # be believed. Set per profile below rather than guessed at run time.
+      TRUSTED_PROXY: cloudflare
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,6 +120,9 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      # NOTE: when running this profile, set TRUSTED_PROXY=reverse-proxy on the `app`
+      # service. Leaving it as `cloudflare` would make the app believe a CF-Connecting-IP
+      # header that Caddy does not control.
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -125,10 +147,19 @@ services:
   # thing this server holds. Create the tunnel under Zero Trust > Networks > Tunnels, add a
   # public hostname mapping your domain to http://app:3000, and put the token in .env.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned like every other image. This is the sole public entry point under the tunnel
+    # profile, and `latest` meant a bad upstream release could take the site down with no
+    # known-good version recorded to roll back to.
+    image: cloudflare/cloudflared:2025.8.1
     profiles: ["tunnel"]
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    # The token goes in the environment, never in argv. As a command flag it was readable
+    # from the host process table — `ps auxww`, /proc/<pid>/cmdline — by any user on a box
+    # this project shares with two other applications, and it grants takeover of the
+    # public hostname.
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
     networks:
       - edge
     depends_on:
@@ -138,7 +169,15 @@ services:
   backup:
     image: postgres:17-bookworm
     restart: unless-stopped
-    env_file: .env
+    # Only what backup.sh reads. It has no business holding the auth secret or the tunnel
+    # token.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DESTINATION: ${BACKUP_DESTINATION:-/backups}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
     # bash, not sh: the script relies on `pipefail` to notice a failed pg_dump, which
     # POSIX sh does not provide. Running it under sh silently reinstates the bug where a
     # truncated dump is promoted to a real backup.

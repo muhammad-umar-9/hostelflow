@@ -123,21 +123,53 @@ export async function requestContext(): Promise<{
 }> {
   const headerList = await headers();
 
-  const cloudflare = headerList.get("cf-connecting-ip")?.trim();
-  const realIp = headerList.get("x-real-ip")?.trim();
-  const forwarded = headerList
-    .get("x-forwarded-for")
-    ?.split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  const ipAddress =
-    cloudflare || realIp || (forwarded?.length ? forwarded[forwarded.length - 1] : null);
-
   return {
-    ipAddress: ipAddress || null,
+    ipAddress: clientAddress(headerList),
     userAgent: headerList.get("user-agent"),
   };
+}
+
+/**
+ * The client's address, read from the one header the deployed front end actually controls.
+ *
+ * Trying each candidate header in turn is what makes this dangerous, and an earlier
+ * version did exactly that. Every one of these is a plain request header: whichever the
+ * front end does not overwrite, a client can simply send. Preferring `CF-Connecting-IP`
+ * unconditionally meant that under the Caddy profile — where nothing strips it — a request
+ * carrying `CF-Connecting-IP: 8.8.8.8` put an attacker-chosen address into every audit
+ * row. That is the same bug as trusting the first `X-Forwarded-For` entry, moved one
+ * deployment over.
+ *
+ * So the front end is declared in configuration rather than sniffed, and only its header
+ * is read. An unrecognised or absent setting records nothing, because an audit trail with
+ * no address is honest and one with a forged address is not.
+ */
+function clientAddress(headerList: Headers): string | null {
+  const trusted = process.env.TRUSTED_PROXY;
+
+  if (trusted === "cloudflare") {
+    // Cloudflare overwrites this on every request, so a client cannot forge it.
+    return headerList.get("cf-connecting-ip")?.trim() || null;
+  }
+
+  if (trusted === "reverse-proxy") {
+    // Caddy replaces X-Real-IP and X-Forwarded-For with the peer address it sees. The
+    // last XFF entry is the one it appended; earlier entries came from the caller.
+    const realIp = headerList.get("x-real-ip")?.trim();
+    if (realIp) return realIp;
+
+    const forwarded = headerList
+      .get("x-forwarded-for")
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    return forwarded?.length ? (forwarded[forwarded.length - 1] ?? null) : null;
+  }
+
+  // No declared front end — a local run, or a misconfiguration. Recording nothing beats
+  // recording something a caller chose.
+  return null;
 }
 
 /**

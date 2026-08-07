@@ -9,21 +9,23 @@ business on a single server.
 
 ## Threat model
 
-| Threat                                                     | Control                                                                                                      | Verified by                                         |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| Someone registers themselves into the system               | No public sign-up route exists; `disableSignUp` in `lib/server/auth.ts`. First owner via server CLI only     | —                                                   |
-| Password guessing                                          | Sign-in limited to 5 attempts / 5 minutes, stored in PostgreSQL so it survives restarts and spans containers | —                                                   |
-| Manager of hostel A reads hostel B's residents             | Every query is hostel-scoped; cross-tenant reads return 404, never 403                                       | `tests/integration/integrity.test.ts`               |
-| Resident opens another resident's records by editing a URL | Residents never supply a resident id; it is derived from the session                                         | `lib/server/authz.ts`                               |
-| CNIC images reachable without authorization                | Private bucket, no anonymous access, proxied downloads                                                       | `scripts/init-storage.ts` reports any bucket policy |
-| A leaked link keeps working after sign-out                 | Downloads proxied per request rather than issued as signed URLs                                              | —                                                   |
-| Malicious upload disguised as an image                     | Magic-byte validation, not extension or Content-Type                                                         | `tests/unit/uploads.test.ts`                        |
-| Two residents allocated one bed                            | Unique index; concurrent claims resolve to one winner                                                        | `tests/integration/bed-allocation.test.ts`          |
-| Quietly editing verified money                             | Payments immutable once VERIFIED; corrections are reversal rows                                              | —                                                   |
-| Erasing the audit trail                                    | Append-only triggers refuse UPDATE and DELETE for every role                                                 | `tests/integration/integrity.test.ts`               |
-| CNIC or token in logs                                      | Redaction before every audit write                                                                           | `tests/unit/redaction.test.ts`                      |
-| Database reachable from the internet                       | Postgres and MinIO publish no ports and sit on an internal network                                           | `compose.yaml`                                      |
-| Secrets in the browser bundle                              | `server-only` on every server module; no `NEXT_PUBLIC_` secret                                               | Build fails if violated                             |
+| Threat                                                     | Control                                                                                                                                   | Verified by                                         |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Someone registers themselves into the system               | No public sign-up route exists; `disableSignUp` in `lib/server/auth.ts`. First owner via server CLI only                                  | —                                                   |
+| Password guessing                                          | Sign-in limited to 5 attempts / 5 minutes, stored in PostgreSQL so it survives restarts and spans containers                              | —                                                   |
+| Manager of hostel A reads hostel B's residents             | Every query is hostel-scoped; cross-tenant reads return 404, never 403                                                                    | `tests/integration/integrity.test.ts`               |
+| Resident opens another resident's records by editing a URL | Residents never supply a resident id; it is derived from the session                                                                      | `lib/server/authz.ts`                               |
+| CNIC images reachable without authorization                | Private bucket, no anonymous access, proxied downloads                                                                                    | `scripts/init-storage.ts` reports any bucket policy |
+| A leaked link keeps working after sign-out                 | Downloads proxied per request rather than issued as signed URLs                                                                           | —                                                   |
+| Malicious upload disguised as an image                     | Magic-byte validation, not extension or Content-Type                                                                                      | `tests/unit/uploads.test.ts`                        |
+| Two residents allocated one bed                            | Unique index; concurrent claims resolve to one winner                                                                                     | `tests/integration/bed-allocation.test.ts`          |
+| Quietly editing verified money                             | Payments immutable once VERIFIED; corrections are reversal rows                                                                           | —                                                   |
+| Erasing the audit trail                                    | Append-only triggers refuse UPDATE and DELETE for every role                                                                              | `tests/integration/integrity.test.ts`               |
+| CNIC or token in logs                                      | Redaction before every audit write                                                                                                        | `tests/unit/redaction.test.ts`                      |
+| Database reachable from the internet                       | Postgres and MinIO publish no ports and sit on an internal network                                                                        | `compose.yaml`                                      |
+| Forged client address in the audit trail                   | The trusted front end is declared in `TRUSTED_PROXY`; only that front end's header is read, and Caddy strips the ones it does not control | `lib/server/audit.ts`, `docker/Caddyfile`           |
+| Tunnel token readable from the host process table          | Passed as an environment variable, never argv; only the cloudflared service receives it                                                   | `compose.yaml`                                      |
+| Secrets in the browser bundle                              | `server-only` on every server module; no `NEXT_PUBLIC_` secret                                                                            | Build fails if violated                             |
 
 ## Authentication
 
@@ -62,14 +64,27 @@ Server-side, on every read and write. Hiding a button is not authorization.
 
 ## Transport and headers
 
-Caddy is the only public entry point and terminates HTTPS with automatically renewed
-certificates. HTTP is redirected, never served.
+The public entry point depends on the deployment profile, and the application no longer
+assumes either one is present.
+
+- **tunnel** (default): cloudflared dials out to Cloudflare, which terminates TLS. Nothing
+  is published, so the stack cannot be port-scanned.
+- **standalone**: Caddy terminates HTTPS with automatically renewed certificates and
+  redirects HTTP.
 
 HSTS (1 year, `includeSubDomains`, `preload`), `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, a restrictive
 `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, and a CSP that permits no
-third-party scripts and no framing. The same headers are set in `next.config.ts` too, so
-the app is not naked if it is ever run without the proxy.
+third-party scripts and no framing — all emitted by **`next.config.ts`**, so they hold
+under either profile.
+
+That matters: they used to live only in the Caddyfile, and moving to a tunnel left the
+default deployment serving no Content-Security-Policy at all. A proxy may add its own on
+top; the application no longer depends on one being there.
+
+HSTS is sent in production only and **without `includeSubDomains`** — routing lives in the
+Cloudflare dashboard, so this stack may answer for an apex hostname, and pinning HTTPS
+across every sibling subdomain would reach other projects on a shared server.
 
 `'unsafe-inline'` is present for scripts and styles: the Next.js bootstrap and Tailwind's
 runtime style injection both require it. Removing it needs nonce-based CSP, which is
