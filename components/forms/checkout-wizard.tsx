@@ -70,7 +70,7 @@ export function CheckoutWizard({ residentId }: { residentId: string }) {
     }
     if (refund < 0 && role !== "owner") {
       setError(
-        "Deductions exceed the security deposit. Owner approval is required — switch to the Owner role to continue.",
+        "Deductions exceed the security deposit. This needs the owner to approve it.",
       );
       return;
     }

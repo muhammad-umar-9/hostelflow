@@ -9,7 +9,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ErrorState } from "@/components/layout/error-state";
 import { LoadingScreen } from "@/components/layout/loading-screen";
 import { PageHeader } from "@/components/layout/page-header";
-import { RoleSwitcher } from "@/components/layout/role-switcher";
+import { SignOutButton } from "@/components/layout/sign-out-button";
 import { DemoResetButton } from "@/components/layout/demo-reset-button";
 import { useHostel } from "@/components/providers/hostel-provider";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col gap-3 rounded-2xl border border-line bg-white p-4 lg:hidden">
-            <RoleSwitcher />
+            <SignOutButton />
             <DemoResetButton />
           </div>
         </div>

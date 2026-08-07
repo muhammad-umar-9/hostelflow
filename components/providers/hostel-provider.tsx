@@ -17,14 +17,20 @@ import type {
   PoliceStage,
   Role,
 } from "@/lib/types";
+import type { Viewer } from "@/lib/server/viewer";
 
 interface HostelContextValue {
   data: HostelData | null;
   loading: boolean;
   mutating: boolean;
   error: string | null;
+  /**
+   * Presentation only. Resolved on the server from HostelMembership, never writable from
+   * the browser. Rendering an owner-only control off this value is fine; *authorizing* one
+   * off it is not — the server action behind it must call requireOwner() for itself.
+   */
   role: Role;
-  setRole: (role: Role) => void;
+  viewer: Viewer;
   reload: () => Promise<void>;
   resetDemo: () => Promise<void>;
   admitResident: (input: AdmissionInput) => Promise<MutationResult>;
@@ -47,27 +53,20 @@ interface HostelContextValue {
 }
 
 const HostelContext = React.createContext<HostelContextValue | null>(null);
-const ROLE_KEY = "hostelflow.role";
 
-export function HostelProvider({ children }: { children: React.ReactNode }) {
+export function HostelProvider({
+  viewer,
+  children,
+}: {
+  viewer: Viewer;
+  children: React.ReactNode;
+}) {
   const { toast } = useToast();
   const [data, setData] = React.useState<HostelData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [mutating, setMutating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [role, setRoleState] = React.useState<Role>("owner");
-
-  // Demo-only role state. This is presentation state, never authorization.
-  // TODO(backend milestone): delete the role switcher and derive the role from the
-  // authenticated server session and hostel membership.
-  React.useEffect(() => {
-    const stored =
-      typeof window === "undefined" ? null : window.localStorage.getItem(ROLE_KEY);
-    if (stored === "owner" || stored === "manager" || stored === "resident") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-off hydration of the demo role
-      setRoleState(stored);
-    }
-  }, []);
+  const role = viewer.role;
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -88,11 +87,6 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load() flips the loading flag before awaiting
     void load();
   }, [load]);
-
-  const setRole = React.useCallback((next: Role) => {
-    setRoleState(next);
-    if (typeof window !== "undefined") window.localStorage.setItem(ROLE_KEY, next);
-  }, []);
 
   const run = React.useCallback(
     async (
@@ -123,7 +117,7 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
       mutating,
       error,
       role,
-      setRole,
+      viewer,
       reload: load,
       resetDemo: async () => {
         setLoading(true);
@@ -161,7 +155,7 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
       updateSettings: (patch) =>
         run((current) => hostelRepository.updateSettings(current, patch)),
     }),
-    [data, loading, mutating, error, role, setRole, load, run, toast],
+    [data, loading, mutating, error, role, viewer, load, run, toast],
   );
 
   return <HostelContext.Provider value={value}>{children}</HostelContext.Provider>;

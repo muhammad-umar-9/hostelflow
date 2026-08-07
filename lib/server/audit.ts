@@ -2,6 +2,7 @@ import "server-only";
 
 import { headers } from "next/headers";
 import { redact, redactText } from "@/lib/domain/redaction";
+import { isDynamicBailout } from "./dynamic";
 import { serverEnv } from "./env";
 import type { DbClient } from "./db";
 import { prisma } from "./db";
@@ -193,12 +194,8 @@ export async function optionalRequestContext(): Promise<{
 function isMissingRequestScope(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  // Next marks the static-generation bailout with a digest; that one must propagate.
-  const digest = (error as Error & { digest?: unknown }).digest;
-  if (typeof digest === "string" && digest.startsWith("DYNAMIC_SERVER_USAGE")) {
-    return false;
-  }
-  if (error.name === "DynamicServerError") return false;
+  // The static-generation bailout must propagate, never be read as "no request here".
+  if (isDynamicBailout(error)) return false;
 
   return /outside a request scope/i.test(error.message);
 }

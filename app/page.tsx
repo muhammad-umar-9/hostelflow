@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { getViewer, homePathFor } from "@/lib/server/viewer";
 
-export default function HomePage() {
-  redirect("/login");
+export default async function HomePage() {
+  redirect(homePathFor(await getViewer()));
 }
