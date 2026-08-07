@@ -8,6 +8,11 @@ import { expect, test, type Locator } from "@playwright/test";
  * the stylesheet.
  */
 
+// Both checks read the login screen, which redirects a signed-in visitor to their
+// dashboard. The cached owner session would turn a palette assertion into a confusing
+// "element not found".
+test.use({ storageState: { cookies: [], origins: [] } });
+
 /** Deep navy `--p: #0f2a47`. */
 const NAVY: [number, number, number] = [15, 42, 71];
 /** `--p` for `data-theme="green"`: #12402f. */

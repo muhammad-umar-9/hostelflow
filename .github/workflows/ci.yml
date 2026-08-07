@@ -188,6 +188,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # The smoke suite signs in through the real login form now, so it needs a database to
+    # sign in to. Without one it would skip every authenticated screen and still report
+    # success — a green check that guarded nothing.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: hostelflow_e2e
+          POSTGRES_USER: hostelflow
+          POSTGRES_PASSWORD: hostelflow_ci_password
+        options: >-
+          --health-cmd "pg_isready -U hostelflow -d hostelflow_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      # Only the e2e harness reads this, and it never falls back to DATABASE_URL: this
+      # suite runs `migrate deploy` and `db:seed`, so pointing it at the wrong database
+      # would rewrite it rather than merely read it.
+      E2E_DATABASE_URL: postgresql://hostelflow:hostelflow_ci_password@localhost:5432/hostelflow_e2e
+
     steps:
       - uses: actions/checkout@v4
 
@@ -203,6 +227,15 @@ jobs:
 
       - name: Smoke tests
         run: npm run test:e2e
+
+      # A skipped authenticated suite is indistinguishable from a passing one in the
+      # summary line, so fail loudly if the database never got wired up.
+      - name: Fail if the authenticated screens were skipped
+        run: |
+          if [ -z "${E2E_DATABASE_URL:-}" ]; then
+            echo "E2E_DATABASE_URL was not set: the authenticated screens did not run."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         if: failure()
