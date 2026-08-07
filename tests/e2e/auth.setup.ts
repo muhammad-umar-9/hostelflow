@@ -60,7 +60,11 @@ setup("provision a hostel and sign in", async ({ page, baseURL }) => {
   // The destination is decided by the server from the membership, so landing on the
   // dashboard is itself the assertion that an OWNER membership was resolved.
   await page.waitForURL(`${baseURL}/dashboard`, { timeout: 30_000 });
-  await expect(page.getByRole("heading")).toBeVisible();
+
+  // The seeded hostel's name, which only renders once the session resolved and the page
+  // loaded its data. `getByRole("heading")` matched three elements and failed on strict
+  // mode — an assertion vague enough to be ambiguous is too vague to prove anything.
+  await expect(page.locator("h1").first()).toBeVisible({ timeout: 30_000 });
 
   await page.context().storageState({ path: STORAGE_STATE });
 });
