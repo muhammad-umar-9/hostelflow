@@ -1,0 +1,141 @@
+# HostelFlow production stack.
+#
+# The shape that matters: Caddy is the only container that publishes a port. PostgreSQL and
+# MinIO sit on an internal network with no `ports:` mapping at all, so they are reachable
+# from the app container and from nowhere else — not from the host, not from the internet,
+# regardless of the server's firewall.
+#
+#   docker compose build
+#   docker compose up -d
+#   docker compose ps
+#   docker compose logs --tail=200 app
+#
+# See docs/server-deployment.md before the first deployment.
+
+name: hostelflow
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - edge
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    # No ports. Caddy reaches the app over the `edge` network.
+
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Deterministic collation, so ORDER BY on resident names does not depend on the
+      # host's locale.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US --encoding=UTF8"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # No ports: the database is never exposed outside this compose network.
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # The browser console is not needed in production and is one more login to defend.
+      MINIO_BROWSER: "off"
+    volumes:
+      - minio-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # No ports: object storage is reachable only from the app container.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      # QUIC / HTTP3.
+      - "443:443/udp"
+
+  backup:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    env_file: .env
+    # bash, not sh: the script relies on `pipefail` to notice a failed pg_dump, which
+    # POSIX sh does not provide. Running it under sh silently reinstates the bug where a
+    # truncated dump is promoted to a real backup.
+    entrypoint: ["/bin/bash", "/usr/local/bin/backup.sh"]
+    volumes:
+      - ./docker/backup.sh:/usr/local/bin/backup.sh:ro
+      # The mount target follows BACKUP_DESTINATION. Pinning it to /backups while telling
+      # operators in .env.example that the destination is configurable meant a changed
+      # value wrote backups into the container's ephemeral layer — and logged success.
+      - backup-data:${BACKUP_DESTINATION:-/backups}
+      - minio-data:/minio-source:ro
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  minio-data:
+  caddy-data:
+  caddy-config:
+  # Deliberately a separate volume. Keeping backups inside the database volume means
+  # losing both to the same failure. Mirror this off the machine as well; see
+  # docs/backup-and-restore.md.
+  backup-data:
+
+networks:
+  # Caddy to app only.
+  edge:
+  # App to database and object storage. No route to or from the internet.
+  internal:
+    internal: true
