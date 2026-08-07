@@ -3,6 +3,7 @@ import "server-only";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
+import { sharedAuthOptions } from "@/lib/auth-options";
 import { prisma } from "./db";
 import { serverEnv } from "./env";
 
@@ -30,24 +31,22 @@ function createAuth() {
   const env = serverEnv();
   const isProduction = env.NODE_ENV === "production";
 
-  return betterAuth({
-    appName: "HostelFlow",
+  const shared = sharedAuthOptions({
     baseURL: env.APP_URL,
     secret: env.AUTH_SECRET,
+    database: prismaAdapter(prisma, { provider: "postgresql" }),
+  });
+
+  return betterAuth({
+    ...shared,
     trustedOrigins: [env.APP_URL],
 
-    database: prismaAdapter(prisma, { provider: "postgresql" }),
-
     emailAndPassword: {
+      ...shared.emailAndPassword,
       enabled: true,
       // Accounts are created by the bootstrap CLI or by an owner, never self-service.
+      // This is the one setting the CLI must not inherit: it has to sign up exactly once.
       disableSignUp: true,
-      minPasswordLength: 12,
-      maxPasswordLength: 128,
-      // No email transport is configured yet, so password reset is an in-person or
-      // owner-driven operation for now. Enabling this without a transport would produce
-      // a reset flow that silently never delivers.
-      requireEmailVerification: false,
     },
 
     session: {

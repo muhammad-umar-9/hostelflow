@@ -1,5 +1,21 @@
 import { defineConfig, devices } from "@playwright/test";
-import { STORAGE_STATE, e2eDatabaseUrl } from "./tests/e2e/config";
+
+/*
+ * Deliberately no import from ./tests: `tests` is excluded from the production image, but
+ * this file is not, so importing across that line broke `next build` inside Docker with a
+ * missing-module type error. The two values are re-derived here instead — and the test
+ * tree imports them back from this file, so there is still exactly one definition.
+ */
+import { resolve } from "node:path";
+
+/** Where the signed-in session is cached between the setup project and the specs. */
+export const STORAGE_STATE = resolve(".playwright/owner.json");
+
+/** The database the suite is allowed to migrate, seed and destroy. Never DATABASE_URL. */
+export function e2eDatabaseUrl(): string | null {
+  const url = process.env.E2E_DATABASE_URL?.trim();
+  return url ? url : null;
+}
 
 /**
  * Smoke tests run against a production build, not the dev server, so the suite fails if

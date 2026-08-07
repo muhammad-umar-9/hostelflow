@@ -7,9 +7,12 @@
  * typo away from the production runbook. This one refuses to run against anything but a
  * database the caller has explicitly nominated for testing.
  */
-import { PrismaClient } from "@/lib/generated/prisma/client";
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { MembershipRole } from "@/lib/generated/prisma/enums";
+import { PrismaClient } from "../lib/generated/prisma/client";
+import { MembershipRole } from "../lib/generated/prisma/enums";
+import { sharedAuthOptions } from "../lib/auth-options";
 
 const email = process.env.E2E_OWNER_EMAIL;
 const password = process.env.E2E_OWNER_PASSWORD;
@@ -31,10 +34,21 @@ if (!/_test\b|_e2e\b|hostelflow_test/i.test(databaseUrl)) {
 }
 
 async function main() {
-  const { auth } = await import("@/lib/server/auth");
-
   const adapter = new PrismaPg({ connectionString: databaseUrl });
   const prisma = new PrismaClient({ adapter });
+
+  // A local instance rather than lib/server/auth, which is marked `server-only`: Next
+  // aliases that package away, a tsx script cannot, so importing it here throws
+  // "This module cannot be imported from a Client Component module" — which is what CI
+  // reported. The settings come from the same shared source the application uses, so the
+  // password this creates is hashed exactly the way the application will verify it.
+  const auth = betterAuth(
+    sharedAuthOptions({
+      baseURL: process.env.APP_URL ?? "http://127.0.0.1:3100",
+      secret: process.env.AUTH_SECRET ?? "e2e-secret-not-used-anywhere-else-0123456789",
+      database: prismaAdapter(prisma, { provider: "postgresql" }),
+    }),
+  );
 
   try {
     const hostel = await prisma.hostel.findFirst({
@@ -51,7 +65,7 @@ async function main() {
     if (!user) {
       // Better Auth owns password hashing; creating the row directly would store a
       // password this application could never verify.
-      await auth().api.signUpEmail({
+      await auth.api.signUpEmail({
         body: { name: "E2E Owner", email: email!, password: password! },
       });
       user = await prisma.user.findUniqueOrThrow({

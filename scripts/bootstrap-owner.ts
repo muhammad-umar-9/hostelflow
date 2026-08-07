@@ -19,6 +19,7 @@ import { stdin, stdout } from "node:process";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../lib/generated/prisma/client";
 import { MembershipRole } from "../lib/generated/prisma/enums";
+import { MIN_PASSWORD_LENGTH, sharedAuthOptions } from "../lib/auth-options";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const APP_URL = process.env.APP_URL;
@@ -31,11 +32,15 @@ if (!DATABASE_URL || !APP_URL || !AUTH_SECRET) {
   process.exit(1);
 }
 
+// Captured after the guard above, where they are known to be present. TypeScript keeps
+// that knowledge here at module scope but loses it inside main()'s closure, so re-reading
+// process.env down there would be `string | undefined` again.
+const appUrl: string = APP_URL;
+const authSecret: string = AUTH_SECRET;
+
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: DATABASE_URL }),
 });
-
-const MIN_PASSWORD_LENGTH = 12;
 
 /**
  * Reads a line without echoing it, so the password never appears on screen or in a
@@ -121,15 +126,16 @@ async function main() {
   const { betterAuth } = await import("better-auth");
   const { prismaAdapter } = await import("better-auth/adapters/prisma");
 
-  const auth = betterAuth({
-    appName: "HostelFlow",
-    baseURL: APP_URL,
-    secret: AUTH_SECRET,
-    database: prismaAdapter(prisma, { provider: "postgresql" }),
-    // Enabled only for this one call. The running application keeps sign-up disabled.
-    emailAndPassword: { enabled: true, minPasswordLength: MIN_PASSWORD_LENGTH },
-    telemetry: { enabled: false },
-  });
+  // The same settings the application verifies passwords with — see lib/auth-options.ts.
+  // `disableSignUp` is deliberately not among them: it is a property of the running
+  // application, and this CLI exists to sign up exactly once.
+  const auth = betterAuth(
+    sharedAuthOptions({
+      baseURL: appUrl,
+      secret: authSecret,
+      database: prismaAdapter(prisma, { provider: "postgresql" }),
+    }),
+  );
 
   const created = await auth.api.signUpEmail({ body: { name, email, password } });
 
