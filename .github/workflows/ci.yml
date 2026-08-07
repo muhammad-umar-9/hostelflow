@@ -1,10 +1,15 @@
 name: CI
 
-# Every push, every branch. A test suite that runs nowhere gates nothing: the Playwright
-# smoke tests added on this branch would otherwise sit unexecuted until someone
-# remembered to run them, and `npm run verify` deliberately excludes them to stay fast.
+# Every push, every branch. Two reasons this file matters more than usual here.
 #
-# Later branches extend this file with database-integration and container-image jobs.
+# A suite that runs nowhere gates nothing: `npm run verify` excludes the Playwright tests
+# to stay fast, so without CI they would sit unexecuted until someone remembered them.
+#
+# And PostgreSQL and MinIO run on the owner's server, not on the development
+# machine, so the database integration tests cannot run locally. Without CI they would be
+# written and never executed — and CLAUDE.md requires integration tests to pass before a
+# branch may merge. GitHub provides a throwaway PostgreSQL service container, so here the
+# tests actually run, on every push, publicly.
 
 on:
   push:
@@ -23,7 +28,7 @@ permissions:
 
 jobs:
   checks:
-    name: Format, lint, types, build
+    name: Format, lint, types, unit tests, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -35,6 +40,7 @@ jobs:
           node-version: "22"
           cache: npm
 
+      # postinstall runs prisma generate, which needs only the schema.
       - run: npm ci
 
       - name: Formatting
@@ -46,14 +52,117 @@ jobs:
       - name: Types
         run: npm run typecheck
 
-      # Deliberately no secrets in this job's environment. A production build must not
-      # require a database URL or an auth secret; if this step ever needs one, that
-      # property has regressed.
+      - name: Unit tests
+        run: npm run test
+
+      # Deliberately no secrets: server configuration is validated lazily at request time,
+      # so a production build must not require a database URL or an auth secret. If this
+      # step ever needs one, that property has regressed.
       - name: Production build
         run: npm run build
 
       - name: Dependency audit
         run: npm audit --audit-level=high
+
+  integration:
+    name: Database integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: hostelflow_test
+          POSTGRES_USER: hostelflow
+          POSTGRES_PASSWORD: hostelflow_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hostelflow -d hostelflow_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # A disposable CI database. The suite reads TEST_DATABASE_URL and ignores
+      # DATABASE_URL on purpose, so it can never be pointed at a live database by an
+      # environment variable that happens to be set.
+      TEST_DATABASE_URL: postgresql://hostelflow:hostelflow_ci_password@localhost:5432/hostelflow_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Proves the migration generated offline actually applies to a real PostgreSQL,
+      # including the hand-written append-only triggers.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Verify migrations are in sync with the schema
+        run: npx prisma migrate status
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Structural seed is idempotent
+        run: |
+          npm run db:seed
+          npm run db:seed
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+
+      - name: Integration tests
+        run: npm run test:integration
+
+  image:
+    name: Production image builds and can start
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # This job exists because the first version of the Dockerfile hand-picked which
+    # node_modules directories to copy into the runtime stage and got it wrong: tsx was
+    # copied without its esbuild dependency, and minio and better-auth were absent
+    # entirely. Everything passed lint, types, tests and build — the image simply exited
+    # on boot, which nothing in CI would have noticed. The Dockerfile now ends with a
+    # require.resolve check for every module the entrypoint needs, so building the image
+    # is the test.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hostelflow:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The entrypoint refuses to start without a database, which is correct. This checks
+      # the layer above that: the operator commands resolve their imports and run.
+      - name: Operator scripts are runnable in the image
+        run: |
+          docker run --rm --entrypoint node hostelflow:ci \
+            -e "['minio','better-auth','@prisma/adapter-pg','esbuild'].forEach(m => require.resolve(m)); console.log('runtime modules resolve')"
+          docker run --rm --entrypoint node_modules/.bin/tsx hostelflow:ci --version
+          docker run --rm --entrypoint node_modules/.bin/prisma hostelflow:ci --version
+
+      - name: Image runs as a non-root user
+        run: |
+          user=$(docker run --rm --entrypoint id hostelflow:ci -un)
+          echo "image runs as: $user"
+          test "$user" = "node"
 
   e2e:
     name: Playwright smoke tests

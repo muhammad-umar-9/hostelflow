@@ -1,0 +1,1160 @@
+// HostelFlow database schema.
+//
+// Conventions used throughout:
+//
+//   * Money is ALWAYS an integer number of Pakistani rupees, in a field suffixed `Pkr`.
+//     There are no floats and no decimals anywhere in this file. PKR has no circulating
+//     subunit, so whole rupees are the minor unit.
+//   * Every tenant-owned row carries `hostelId`. Authorization checks it on every read
+//     and write; see lib/server/authz.ts.
+//   * "At most one active X" rules are enforced by the database, not by application
+//     checks, using a nullable mirror column that is set while the row is active and
+//     NULL once it is not. NULLs do not collide in a unique index, so history is kept
+//     while only one live row can exist. Each one is commented where it appears.
+//   * Financial history is append-only. Verified payments are never edited or deleted;
+//     corrections are new reversal rows that point back at the original.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+// Prisma 7 no longer accepts `url` here. The connection string lives in
+// prisma.config.ts for migration commands, and reaches PrismaClient at run time
+// through the pg driver adapter in lib/server/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Authentication (Better Auth core tables)
+//
+// Field names are fixed by Better Auth's default schema and must not be renamed.
+// Application concepts (role, hostel scope) live on HostelMembership, never here.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  /// Set only for users who are locked out by an administrator.
+  disabledAt DateTime?
+
+  sessions           Session[]
+  accounts           Account[]
+  memberships        HostelMembership[]
+  residentProfile    Resident?
+  auditLogs          AuditLog[]
+  verifiedPayments   Payment[]          @relation("PaymentVerifiedBy")
+  reviewedProofs     PaymentProof[]     @relation("ProofReviewedBy")
+  issuedReceipts     Receipt[]          @relation("ReceiptIssuedBy")
+  documentUploads    StoredObject[]     @relation("ObjectUploadedBy")
+  policeUpdates      PoliceVerification[] @relation("PoliceUpdatedBy")
+  checkoutsHandled   Checkout[]         @relation("CheckoutHandledBy")
+  checkoutsApproved  Checkout[]         @relation("CheckoutApprovedBy")
+  depositEntries     SecurityDepositLedger[] @relation("DepositEntryBy")
+  allocationsCreated BedAllocation[]    @relation("AllocationCreatedBy")
+
+  @@index([disabledAt])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  /// Hashed by Better Auth (scrypt). Never a plaintext password.
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+/// Better Auth rate-limit storage. Required because login and upload routes are
+/// rate limited in the database rather than in process memory, so limits survive a
+/// restart and apply across every app container.
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rateLimit")
+}
+
+// ---------------------------------------------------------------------------
+// Tenant, membership and configuration
+// ---------------------------------------------------------------------------
+
+model Hostel {
+  id      String @id @default(cuid())
+  /// URL-safe identifier, unique across the installation.
+  slug    String @unique
+  name    String
+  addressLine String
+  city    String
+  phone   String?
+  email   String?
+
+  /// Day of month rent invoices fall due (1-28).
+  rentDueDay Int @default(5)
+  /// How long a bed stays HELD for an enquiry before it can be released.
+  bedHoldHours Int @default(48)
+  /// Deductions above this amount require owner approval at checkout.
+  depositDeductionApprovalLimitPkr Int @default(1000)
+  receiptFooter String?
+  /// Payment instructions shown to residents. No credentials, display strings only.
+  bankAccountLabel String?
+  jazzCashLabel    String?
+  easyPaisaLabel   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   HostelMembership[]
+  floors        Floor[]
+  roomTypes     RoomType[]
+  rooms         Room[]
+  beds          Bed[]
+  chargeTypes   ChargeType[]
+  enquiries     Enquiry[]
+  residents     Resident[]
+  admissions    Admission[]
+  allocations   BedAllocation[]
+  bedHolds      BedHold[]
+  invoices      Invoice[]
+  payments      Payment[]
+  paymentProofs PaymentProof[]
+  deposits      SecurityDepositLedger[]
+  police        PoliceVerification[]
+  checkouts     Checkout[]
+  receipts      Receipt[]
+  requests      MaintenanceRequest[]
+  notifications Notification[]
+  objects       StoredObject[]
+  auditLogs     AuditLog[]
+
+  @@map("hostel")
+}
+
+enum MembershipRole {
+  OWNER
+  MANAGER
+  RESIDENT
+}
+
+/// Binds a user to a hostel with exactly one role. All authorization derives from
+/// this table; nothing about a role is ever read from the client.
+model HostelMembership {
+  id       String         @id @default(cuid())
+  hostelId String
+  hostel   Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     MembershipRole
+
+  /// Optional per-manager permission overrides, e.g. {"canApprovePayments": false}.
+  permissions Json?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  revokedAt DateTime?
+
+  /// Mirrors `userId` while the membership is live, NULL once revoked — the same pattern
+  /// used for beds, admissions and CNICs.
+  ///
+  /// A plain unique on (hostelId, userId) would allow only one row per person per hostel,
+  /// so re-hiring a manager meant updating the revoked row in place and overwriting the
+  /// record of what they previously held and when it was withdrawn. Membership history is
+  /// exactly what an audit asks about after an incident.
+  activeUserId String?
+
+  @@unique([hostelId, activeUserId])
+  @@index([userId])
+  @@index([hostelId, role])
+  @@map("hostel_membership")
+}
+
+model Floor {
+  id       String @id @default(cuid())
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  /// Sort order, 0 = ground floor.
+  level    Int
+  name     String
+
+  rooms Room[]
+
+  @@unique([hostelId, level])
+  @@map("floor")
+}
+
+model RoomType {
+  id       String @id @default(cuid())
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  /// Stable code such as THREE_SEATER.
+  code     String
+  name     String
+  /// Number of beds a room of this type has.
+  capacity Int
+  /// Rent per bed per month. Editable configuration, never hard-coded in source.
+  monthlyRentPkr Int
+
+  rooms     Room[]
+  enquiries Enquiry[]
+
+  @@unique([hostelId, code])
+  @@map("room_type")
+}
+
+model Room {
+  id         String   @id @default(cuid())
+  hostelId   String
+  hostel     Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  floorId    String
+  floor      Floor    @relation(fields: [floorId], references: [id])
+  roomTypeId String
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id])
+  /// Displayed room number, e.g. "101".
+  number     String
+  notes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  beds Bed[]
+
+  @@unique([hostelId, number])
+  @@index([hostelId, floorId])
+  @@map("room")
+}
+
+enum BedStatus {
+  VACANT
+  HELD
+  OCCUPIED
+  CHECKOUT_PENDING
+  MAINTENANCE
+}
+
+model Bed {
+  id       String    @id @default(cuid())
+  hostelId String
+  hostel   Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  roomId   String
+  room     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  /// Bed letter within the room: A, B, C, D.
+  label    String
+  status   BedStatus @default(VACANT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allocations BedAllocation[]
+  holds       BedHold[]
+
+  @@unique([roomId, label])
+  @@index([hostelId, status])
+  @@map("bed")
+}
+
+enum ChargeKind {
+  RENT
+  SECURITY_DEPOSIT
+  POLICE_FORM
+  DAMAGE
+  OTHER
+}
+
+/// Configurable charges. Seeded with the pilot's security deposit (Rs 3,000) and
+/// one-time police-form charge (Rs 300); the owner edits the amounts in settings.
+model ChargeType {
+  id       String     @id @default(cuid())
+  hostelId String
+  hostel   Hostel     @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  code     String
+  label    String
+  kind     ChargeKind
+  /// Null for charges whose amount is per-room-type or entered per case.
+  defaultAmountPkr Int?
+  /// True for charges billed once at admission rather than monthly.
+  oneTime  Boolean    @default(false)
+  active   Boolean    @default(true)
+
+  invoiceLines InvoiceLine[]
+
+  @@unique([hostelId, code])
+  @@map("charge_type")
+}
+
+// ---------------------------------------------------------------------------
+// Enquiries
+// ---------------------------------------------------------------------------
+
+enum EnquiryStatus {
+  NEW
+  VISIT_SCHEDULED
+  VISITED
+  BED_HELD
+  ADMITTED
+  LOST
+}
+
+enum EnquirySource {
+  WALK_IN
+  WHATSAPP
+  FACEBOOK
+  REFERRAL
+  PROPERTY_LISTING
+}
+
+model Enquiry {
+  id       String        @id @default(cuid())
+  hostelId String
+  hostel   Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  name     String
+  /// Stored normalized to 03XXXXXXXXX.
+  phone    String
+  preferredRoomTypeId String?
+  preferredRoomType   RoomType? @relation(fields: [preferredRoomTypeId], references: [id])
+  expectedJoiningDate DateTime?
+  source   EnquirySource
+  status   EnquiryStatus @default(NEW)
+  notes    String?
+  lostReason String?
+  visitScheduledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  holds      BedHold[]
+  admissions Admission[]
+  events     EnquiryEvent[]
+
+  @@index([hostelId, status])
+  @@index([hostelId, phone])
+  @@map("enquiry")
+}
+
+/// Append-only activity trail for an enquiry.
+model EnquiryEvent {
+  id        String   @id @default(cuid())
+  enquiryId String
+  enquiry   Enquiry  @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  status    EnquiryStatus
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([enquiryId, createdAt])
+  @@map("enquiry_event")
+}
+
+/// A time-limited claim on a bed for an enquiry. Expires at `expiresAt` or is
+/// released manually; either way the row is kept for history.
+model BedHold {
+  id        String   @id @default(cuid())
+  hostelId  String
+  hostel    Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  bedId     String
+  bed       Bed      @relation(fields: [bedId], references: [id], onDelete: Cascade)
+  enquiryId String?
+  enquiry   Enquiry? @relation(fields: [enquiryId], references: [id])
+  expiresAt DateTime
+  releasedAt DateTime?
+  releasedReason String?
+  createdAt DateTime @default(now())
+
+  /// Mirrors `bedId` while the hold is live, NULL once released. The unique index
+  /// makes a second live hold on the same bed impossible at the database level.
+  activeBedId String? @unique
+
+  @@index([hostelId, expiresAt])
+  @@map("bed_hold")
+}
+
+// ---------------------------------------------------------------------------
+// Residents, guardians and documents
+// ---------------------------------------------------------------------------
+
+enum Occupation {
+  STUDENT
+  EMPLOYEE
+}
+
+enum ResidentStatus {
+  ACTIVE
+  FORMER
+}
+
+model Resident {
+  id       String @id @default(cuid())
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  /// Optional: set once the resident is invited to the companion portal.
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  fullName String
+  /// 13 digits, no dashes. Never appears in object keys, logs or URLs.
+  cnicNormalized String
+  dateOfBirth    DateTime?
+  /// Stored normalized to 03XXXXXXXXX.
+  phone          String
+  addressLine    String
+  city           String
+  institution    String?
+  occupation     Occupation @default(STUDENT)
+  status         ResidentStatus @default(ACTIVE)
+
+  /// Mirrors `cnicNormalized` while the resident is ACTIVE, NULL once FORMER.
+  /// Enforces "one active resident per CNIC per hostel" without deleting history.
+  activeCnicKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guardians   Guardian[]
+  documents   ResidentDocument[]
+  admissions  Admission[]
+  invoices    Invoice[]
+  payments    Payment[]
+  proofs      PaymentProof[]
+  deposits    SecurityDepositLedger[]
+  police      PoliceVerification[]
+  checkouts   Checkout[]
+  receipts    Receipt[]
+  requests    MaintenanceRequest[]
+  allocations BedAllocation[]
+
+  @@unique([hostelId, activeCnicKey])
+  @@index([hostelId, status])
+  @@index([hostelId, cnicNormalized])
+  @@index([hostelId, phone])
+  @@map("resident")
+}
+
+model Guardian {
+  id         String   @id @default(cuid())
+  residentId String
+  resident   Resident @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  fullName   String
+  relationship String
+  cnicNormalized String?
+  phone      String
+  /// True for the emergency contact row when it differs from the guardian.
+  isEmergencyContact Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([residentId])
+  @@map("guardian")
+}
+
+enum StoredObjectKind {
+  RESIDENT_PHOTO
+  CNIC_FRONT
+  CNIC_BACK
+  GUARDIAN_CNIC
+  STUDENT_CARD
+  PAYMENT_PROOF
+  POLICE_ACKNOWLEDGEMENT
+  DAMAGE_PHOTO
+  RECEIPT_PDF
+  SETTLEMENT_PDF
+}
+
+/// Metadata for one object in the private MinIO bucket. The bytes never live in
+/// PostgreSQL and the bucket is never public: files are served only through an
+/// authorized route or a short-lived signed URL.
+model StoredObject {
+  id       String           @id @default(cuid())
+  hostelId String
+  hostel   Hostel           @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  kind     StoredObjectKind
+  /// Randomized key. Never contains a CNIC, a name or any other personal value.
+  objectKey String          @unique
+  bucket    String
+  mimeType  String
+  sizeBytes Int
+  /// SHA-256 of the uploaded bytes, for integrity and duplicate detection.
+  checksumSha256 String?
+  originalFilename String?
+
+  uploadedByUserId String?
+  uploadedBy       User?   @relation("ObjectUploadedBy", fields: [uploadedByUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  residentDocument ResidentDocument?
+  paymentProofs    PaymentProof[]
+  policeDocuments  PoliceVerification[]
+  damageDeductions DamageDeduction[]
+  receipts         Receipt[]
+  accessLogs       DocumentAccessLog[]
+
+  @@index([hostelId, kind])
+  @@map("stored_object")
+}
+
+model ResidentDocument {
+  id         String   @id @default(cuid())
+  residentId String
+  resident   Resident @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  objectId   String   @unique
+  object     StoredObject @relation(fields: [objectId], references: [id])
+  kind       StoredObjectKind
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([residentId, kind])
+  @@map("resident_document")
+}
+
+/// Who opened which protected file, and when. Written on every successful read of
+/// a private object.
+model DocumentAccessLog {
+  id       String   @id @default(cuid())
+  objectId String
+  /// Restrict, not Cascade.
+  ///
+  /// Cascade sent the delete into this table, whose own BEFORE DELETE trigger refuses the
+  /// write, so removing any document that had ever been opened failed with a confusing
+  /// "append-only" error naming the wrong table. Restrict states the real rule directly:
+  /// a document that has been read cannot be hard-deleted, because its access history
+  /// must outlive it. Documents are retired by setting `StoredObject.deletedAt`.
+  object   StoredObject @relation(fields: [objectId], references: [id], onDelete: Restrict)
+  userId   String?
+  action   String
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([objectId, createdAt])
+  @@map("document_access_log")
+}
+
+// ---------------------------------------------------------------------------
+// Admissions and allocations
+// ---------------------------------------------------------------------------
+
+enum AdmissionStatus {
+  PENDING
+  ACTIVE
+  CHECKOUT_PENDING
+  CLOSED
+  CANCELLED
+}
+
+model Admission {
+  id         String          @id @default(cuid())
+  hostelId   String
+  hostel     Hostel          @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId String
+  resident   Resident        @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  enquiryId  String?
+  enquiry    Enquiry?        @relation(fields: [enquiryId], references: [id])
+  status     AdmissionStatus @default(PENDING)
+
+  joiningDate DateTime
+  /// Rent agreed at admission. Copied from the room type so later price changes do
+  /// not silently rewrite an existing agreement.
+  agreedMonthlyRentPkr Int
+  closedAt    DateTime?
+
+  /// Mirrors `residentId` while the admission is PENDING/ACTIVE/CHECKOUT_PENDING,
+  /// NULL once CLOSED or CANCELLED. Enforces "one live admission per resident".
+  activeResidentId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allocations BedAllocation[]
+  invoices    Invoice[]
+  payments    Payment[]
+  deposits    SecurityDepositLedger[]
+  police      PoliceVerification?
+  checkout    Checkout?
+  receipts    Receipt[]
+
+  @@index([hostelId, status])
+  @@map("admission")
+}
+
+model BedAllocation {
+  id          String    @id @default(cuid())
+  hostelId    String
+  hostel      Hostel    @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  bedId       String
+  bed         Bed       @relation(fields: [bedId], references: [id])
+  admissionId String
+  admission   Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident  @relation(fields: [residentId], references: [id])
+
+  allocatedAt DateTime  @default(now())
+  releasedAt  DateTime?
+  releaseReason String?
+
+  createdByUserId String?
+  createdBy       User?   @relation("AllocationCreatedBy", fields: [createdByUserId], references: [id])
+
+  /// Mirrors `bedId` while the allocation is live, NULL once released. This is the
+  /// constraint that makes double allocation impossible: two concurrent admissions
+  /// racing for the same bed cannot both insert a row with the same activeBedId.
+  activeBedId String? @unique
+
+  @@index([hostelId, bedId])
+  @@index([admissionId])
+  @@map("bed_allocation")
+}
+
+// ---------------------------------------------------------------------------
+// Invoicing and payments
+// ---------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIAL
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum InvoiceKind {
+  ADMISSION
+  MONTHLY_RENT
+  SETTLEMENT
+  ADJUSTMENT
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  hostelId    String
+  hostel      Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident      @relation(fields: [residentId], references: [id])
+  admissionId String
+  admission   Admission     @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  kind        InvoiceKind
+  status      InvoiceStatus @default(DRAFT)
+
+  /// Human-facing invoice number, unique within the hostel.
+  number String
+
+  /// First day of the billed month, for MONTHLY_RENT invoices only.
+  periodMonth DateTime?
+  /// The billed month as `YYYY-MM`, for MONTHLY_RENT invoices; NULL otherwise. This is
+  /// what makes monthly generation idempotent, together with the unique below.
+  ///
+  /// Deliberately a string, not a timestamp. As a `DateTime` the uniqueness depended on
+  /// exact millisecond equality, so two code paths computing "the first of the month" in
+  /// different time zones — or one of them a millisecond apart — would both insert and
+  /// bill the resident twice. A month is not an instant, and storing it as one invited
+  /// precisely the bug the constraint exists to prevent.
+  monthlyKey  String?   @db.VarChar(7)
+
+  issuedAt DateTime?
+  dueDate  DateTime
+
+  /// Sum of the invoice lines. Recomputed by the server, never sent by a client.
+  totalPkr Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines  InvoiceLine[]
+  proofs PaymentProof[]
+
+  @@unique([hostelId, number])
+  @@unique([admissionId, monthlyKey])
+  @@index([hostelId, status])
+  @@index([hostelId, dueDate])
+  @@index([residentId])
+  @@map("invoice")
+}
+
+model InvoiceLine {
+  id        String     @id @default(cuid())
+  invoiceId String
+  invoice   Invoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  chargeTypeId String?
+  chargeType   ChargeType? @relation(fields: [chargeTypeId], references: [id])
+  kind        ChargeKind
+  description String
+  amountPkr   Int
+
+  createdAt DateTime @default(now())
+
+  allocations PaymentAllocation[]
+
+  @@index([invoiceId])
+  @@map("invoice_line")
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentStatus {
+  PENDING
+  VERIFIED
+  REVERSED
+}
+
+/// A payment is immutable once VERIFIED. A mistake is corrected by inserting a
+/// reversal row that points at the original through `reversalOfPaymentId`, with the
+/// actor, timestamp and reason recorded.
+model Payment {
+  id          String        @id @default(cuid())
+  hostelId    String
+  hostel      Hostel        @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident      @relation(fields: [residentId], references: [id])
+  admissionId String?
+  admission   Admission?    @relation(fields: [admissionId], references: [id])
+  method      PaymentMethod
+  status      PaymentStatus @default(PENDING)
+  /// Positive for a receipt of money, negative only on a reversal row.
+  amountPkr   Int
+  reference   String?
+  senderName  String?
+  paidAt      DateTime
+
+  verifiedByUserId String?
+  verifiedBy       User?     @relation("PaymentVerifiedBy", fields: [verifiedByUserId], references: [id])
+  verifiedAt       DateTime?
+
+  reversalOfPaymentId String?  @unique
+  reversalOfPayment   Payment? @relation("PaymentReversal", fields: [reversalOfPaymentId], references: [id])
+  reversedBy          Payment? @relation("PaymentReversal")
+  reversalReason      String?
+
+  createdAt DateTime @default(now())
+
+  allocations PaymentAllocation[]
+  proof       PaymentProof?
+  receipts    Receipt[]
+
+  @@index([hostelId, status])
+  @@index([residentId])
+  @@map("payment")
+}
+
+/// Splits one payment across one or more invoice lines. Partial payment is simply a
+/// smaller `amountPkr` than the line total.
+model PaymentAllocation {
+  id            String      @id @default(cuid())
+  paymentId     String
+  payment       Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceLineId String
+  invoiceLine   InvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
+  amountPkr     Int
+  createdAt     DateTime    @default(now())
+
+  @@unique([paymentId, invoiceLineId])
+  @@index([invoiceLineId])
+  @@map("payment_allocation")
+}
+
+enum PaymentProofStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CLEARER_PROOF_REQUIRED
+}
+
+model PaymentProof {
+  id         String             @id @default(cuid())
+  hostelId   String
+  hostel     Hostel             @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId String
+  resident   Resident           @relation(fields: [residentId], references: [id])
+  invoiceId  String?
+  invoice    Invoice?           @relation(fields: [invoiceId], references: [id])
+  objectId   String?
+  object     StoredObject?      @relation(fields: [objectId], references: [id])
+  status     PaymentProofStatus @default(SUBMITTED)
+
+  claimedAmountPkr Int
+  method           PaymentMethod
+  reference        String?
+  senderName       String?
+  paidAt           DateTime?
+  submittedAt      DateTime      @default(now())
+
+  reviewedByUserId String?
+  reviewedBy       User?     @relation("ProofReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  /// Required whenever status becomes REJECTED or CLEARER_PROOF_REQUIRED.
+  decisionReason   String?
+
+  /// Set only once the proof is approved and a payment row exists.
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  events PaymentProofEvent[]
+
+  @@index([hostelId, status])
+  @@index([residentId])
+  @@map("payment_proof")
+}
+
+/// Append-only history so a rejected-then-resubmitted proof keeps its full trail.
+model PaymentProofEvent {
+  id      String             @id @default(cuid())
+  proofId String
+  proof   PaymentProof       @relation(fields: [proofId], references: [id], onDelete: Cascade)
+  status  PaymentProofStatus
+  reason  String?
+  actorUserId String?
+  createdAt DateTime @default(now())
+
+  @@index([proofId, createdAt])
+  @@map("payment_proof_event")
+}
+
+// ---------------------------------------------------------------------------
+// Security deposit ledger
+// ---------------------------------------------------------------------------
+
+enum DepositEntryType {
+  RECEIVED
+  DEDUCTION
+  REFUND
+  ADJUSTMENT
+}
+
+/// The deposit is a ledger, never an editable balance field. The balance is the sum
+/// of `amountPkr`: RECEIVED is positive, DEDUCTION and REFUND are negative,
+/// ADJUSTMENT may be either.
+model SecurityDepositLedger {
+  id          String           @id @default(cuid())
+  hostelId    String
+  hostel      Hostel           @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident         @relation(fields: [residentId], references: [id])
+  admissionId String
+  admission   Admission        @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  entryType   DepositEntryType
+  amountPkr   Int
+  reason      String?
+
+  checkoutId String?
+  checkout   Checkout? @relation(fields: [checkoutId], references: [id])
+
+  recordedByUserId String?
+  recordedBy       User?   @relation("DepositEntryBy", fields: [recordedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([hostelId, residentId])
+  @@index([admissionId])
+  @@map("security_deposit_ledger")
+}
+
+// ---------------------------------------------------------------------------
+// Police verification
+//
+// Deliberately independent of the police-form charge. Paying Rs 300 does not make a
+// resident verified, and these rows never read the invoice.
+// ---------------------------------------------------------------------------
+
+enum PoliceStatus {
+  NOT_STARTED
+  DOCUMENTS_INCOMPLETE
+  FORM_PREPARED
+  SUBMITTED
+  VERIFIED
+  CORRECTION_REQUIRED
+}
+
+model PoliceVerification {
+  id          String       @id @default(cuid())
+  hostelId    String
+  hostel      Hostel       @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident     @relation(fields: [residentId], references: [id])
+  admissionId String       @unique
+  admission   Admission    @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  status      PoliceStatus @default(NOT_STARTED)
+
+  policeStation    String?
+  referenceNumber  String?
+  preparedAt       DateTime?
+  submittedAt      DateTime?
+  verifiedAt       DateTime?
+  /// Free-text list of what is still missing, shown on the tracker.
+  missingDocuments String?
+
+  acknowledgementObjectId String?
+  acknowledgementObject   StoredObject? @relation(fields: [acknowledgementObjectId], references: [id])
+
+  updatedByUserId String?
+  updatedBy       User?   @relation("PoliceUpdatedBy", fields: [updatedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events PoliceVerificationEvent[]
+
+  @@index([hostelId, status])
+  @@map("police_verification")
+}
+
+model PoliceVerificationEvent {
+  id             String             @id @default(cuid())
+  verificationId String
+  verification   PoliceVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  status         PoliceStatus
+  note           String?
+  actorUserId    String?
+  createdAt      DateTime           @default(now())
+
+  @@index([verificationId, createdAt])
+  @@map("police_verification_event")
+}
+
+// ---------------------------------------------------------------------------
+// Checkout and settlement
+// ---------------------------------------------------------------------------
+
+enum CheckoutStatus {
+  DRAFT
+  PENDING_APPROVAL
+  COMPLETED
+  CANCELLED
+}
+
+model Checkout {
+  id          String         @id @default(cuid())
+  hostelId    String
+  hostel      Hostel         @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident       @relation(fields: [residentId], references: [id])
+  admissionId String         @unique
+  admission   Admission      @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  status      CheckoutStatus @default(DRAFT)
+
+  intendedLeavingDate DateTime
+  completedAt         DateTime?
+
+  /// All figures are computed on the server from ledger and invoice rows. They are
+  /// stored so the settlement receipt reproduces exactly what was agreed.
+  depositHeldPkr      Int @default(0)
+  outstandingRentPkr  Int @default(0)
+  damageTotalPkr      Int @default(0)
+  otherChargesPkr     Int @default(0)
+  refundablePkr       Int @default(0)
+
+  refundMethod    PaymentMethod?
+  refundReference String?
+  refundedAt      DateTime?
+
+  handledByUserId String?
+  handledBy       User?   @relation("CheckoutHandledBy", fields: [handledByUserId], references: [id])
+  /// Required when deductions exceed the hostel's configured approval limit.
+  approvedByUserId String?
+  approvedBy       User?     @relation("CheckoutApprovedBy", fields: [approvedByUserId], references: [id])
+  approvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deductions DamageDeduction[]
+  deposits   SecurityDepositLedger[]
+  receipts   Receipt[]
+
+  @@index([hostelId, status])
+  @@map("checkout")
+}
+
+model DamageDeduction {
+  id         String   @id @default(cuid())
+  checkoutId String
+  checkout   Checkout @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  description String
+  amountPkr   Int
+  photoObjectId String?
+  photoObject   StoredObject? @relation(fields: [photoObjectId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([checkoutId])
+  @@map("damage_deduction")
+}
+
+// ---------------------------------------------------------------------------
+// Receipts, requests and notifications
+// ---------------------------------------------------------------------------
+
+enum ReceiptKind {
+  ADMISSION
+  RENT
+  SETTLEMENT
+}
+
+/// Generated on the server from database values only. Nothing on a receipt is ever
+/// taken from a client-submitted total.
+model Receipt {
+  id          String      @id @default(cuid())
+  hostelId    String
+  hostel      Hostel      @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId  String
+  resident    Resident    @relation(fields: [residentId], references: [id])
+  admissionId String?
+  admission   Admission?  @relation(fields: [admissionId], references: [id])
+  paymentId   String?
+  payment     Payment?    @relation(fields: [paymentId], references: [id])
+  checkoutId  String?
+  checkout    Checkout?   @relation(fields: [checkoutId], references: [id])
+  kind        ReceiptKind
+
+  /// Sequential, human-facing, unique within the hostel.
+  number String
+
+  totalReceivedPkr Int
+  balancePkr       Int @default(0)
+  /// Snapshot of the receipt body at issue time, so a later price change cannot
+  /// retroactively alter a document the resident already holds.
+  snapshot Json
+
+  pdfObjectId String?
+  pdfObject   StoredObject? @relation(fields: [pdfObjectId], references: [id])
+
+  issuedByUserId String?
+  issuedBy       User?   @relation("ReceiptIssuedBy", fields: [issuedByUserId], references: [id])
+  issuedAt       DateTime @default(now())
+
+  @@unique([hostelId, number])
+  @@index([residentId])
+  @@map("receipt")
+}
+
+enum MaintenanceStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model MaintenanceRequest {
+  id         String            @id @default(cuid())
+  hostelId   String
+  hostel     Hostel            @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  residentId String
+  resident   Resident          @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  title      String
+  details    String?
+  status     MaintenanceStatus @default(OPEN)
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hostelId, status])
+  @@map("maintenance_request")
+}
+
+model Notification {
+  id       String  @id @default(cuid())
+  hostelId String
+  hostel   Hostel  @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  /// Recipient. Staff notifications may target a role instead of one user.
+  userId   String?
+  role     MembershipRole?
+  title    String
+  body     String?
+  /// Route the notification links to, e.g. /payments/proofs.
+  href     String?
+  readAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([hostelId, userId, readAt])
+  @@map("notification")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+/// Append-only. The application never updates or deletes these rows, and the
+/// migration revokes UPDATE and DELETE on this table from the application role.
+model AuditLog {
+  id       String  @id @default(cuid())
+  hostelId String?
+  /// Restrict, not Cascade or SetNull: audit history pins the rows it refers to, so
+  /// history cannot be erased by deleting a hostel. Retire a hostel, never delete it.
+  hostel   Hostel? @relation(fields: [hostelId], references: [id], onDelete: Restrict)
+  actorUserId String?
+  /// Restrict for the same reason. Staff who leave are disabled via User.disabledAt;
+  /// deleting a user who has acted is refused by the database.
+  actor       User?  @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  /// Dotted action name, e.g. payment.verified, document.viewed, bed.moved.
+  action     String
+  entityType String
+  entityId   String?
+  /// Short human-readable summary. Must never contain a full CNIC, a password, a
+  /// token or a signed URL.
+  summary    String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([hostelId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}

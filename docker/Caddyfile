@@ -1,0 +1,60 @@
+# Caddy is the only public entry point.
+#
+# It terminates HTTPS with an automatically issued and renewed certificate, sets the
+# security headers, caps request bodies, and proxies everything to the app container over
+# the internal network. PostgreSQL and MinIO have no route through here at all.
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	# 10 MB, comfortably above MAX_UPLOAD_BYTES (8 MB) plus multipart overhead. Rejecting
+	# an oversized body here means it never reaches the application.
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		# One year, and eligible for preload. Only sensible because this host is https-only.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+
+		# 'unsafe-inline' for styles is required by Tailwind's runtime style injection, and
+		# 'unsafe-inline' for scripts by the Next.js bootstrap. Everything else is locked to
+		# this origin: no third-party scripts, no framing, no external form targets.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
+		# Never advertise the stack.
+		-Server
+		-X-Powered-By
+	}
+
+	# Private documents must not sit in any shared cache between here and the browser.
+	@private path /api/documents/* /api/uploads*
+	header @private Cache-Control "private, no-store, max-age=0"
+
+	reverse_proxy app:3000 {
+		header_up X-Real-IP {remote_host}
+		# The app trusts X-Forwarded-For for audit logging only because this proxy is the
+		# single public entry point and overwrites it here.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20MB
+			roll_keep 10
+		}
+		# Query strings can carry signed-URL parameters; the URI is logged without them.
+		format json
+	}
+}
+
+# Anything arriving on http is redirected, never served.
+http://{$APP_DOMAIN} {
+	redir https://{$APP_DOMAIN}{uri} permanent
+}

@@ -4,13 +4,29 @@ Mobile-first Next.js frontend for **H-K Boys Hostel** (Lahore): rooms and beds, 
 enquiries, admissions, monthly rent, payment-proof approval, receipts, police verification,
 checkout with security settlement, and a resident companion portal.
 
-All data is typed mock data behind a repository interface. No backend, no database, no
-secrets in this project.
+> **Status: the platform exists, the screens do not use it yet.**
+>
+> PostgreSQL, authentication, per-record authorization, the audit trail, private object
+> storage and the containerized deployment are all built and tested. **Every screen is
+> still driven by mock data** — converting them starts with the next branch,
+> `feature/admission-vertical-slice`.
+>
+> So: the login you see is still the demo one, and every number on every screen is still
+> invented. `docs/frontend-audit.md` tracks exactly what is still mock-driven.
+> `PROJECT_SPEC.md` is the product specification; `CLAUDE.md` is the working agreement.
 
-> **Status:** this is the stabilized frontend, not the product. The login, the role
-> switcher and every number on every screen are demo behaviour. `docs/frontend-audit.md`
-> lists exactly what is still mock-driven and what replaces it. The product specification
-> is `PROJECT_SPEC.md`.
+## How it fits together
+
+| Layer                                                             | State                                     |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| Next.js 16 App Router, Tailwind, shadcn-style components          | Built, unchanged design                   |
+| PostgreSQL via Prisma 7, 30 models, migration committed           | Built, not yet applied to a live database |
+| Better Auth: email/password, database sessions, no public sign-up | Built                                     |
+| Authorization: role and hostel resolved per request               | Built                                     |
+| Append-only audit trail, enforced by database trigger             | Built                                     |
+| MinIO private storage, proxied downloads, magic-byte validation   | Built                                     |
+| Docker Compose: app, postgres, minio, caddy, backup               | Built, not yet deployed                   |
+| Screens reading real data                                         | **Not started**                           |
 
 ## Requirements
 
@@ -34,17 +50,64 @@ npm run start
 Checks:
 
 ```bash
-npm run format:check   # Prettier
-npm run lint           # ESLint (flat config)
-npm run typecheck      # tsc --noEmit
-npm run verify         # all of the above, then a production build
-npm run test:e2e       # Playwright route smoke tests (builds and starts the app itself)
+npm run format:check     # Prettier
+npm run lint             # ESLint (flat config)
+npm run typecheck        # tsc --noEmit
+npm run test             # Vitest unit tests
+npm run verify           # all of the above, then a production build
+npm run test:e2e         # Playwright route smoke tests (builds and starts the app itself)
+npm run test:integration # database tests — needs TEST_DATABASE_URL, see below
 ```
 
 The Playwright suite needs its browser once: `npx playwright install chromium`.
 
-Copy `.env.example` to `.env.local` if you want to override the app name or point the app
-at a real API later. Nothing in this project requires a secret.
+### Database commands
+
+```bash
+npm run db:generate        # regenerate the Prisma client
+npm run db:validate        # check the schema
+npm run db:migrate:deploy  # apply migrations (needs DATABASE_URL)
+npm run db:seed            # hostel, rooms, beds, charges — safe in production
+npm run db:seed:demo       # fictional residents — refuses to run in production
+npm run bootstrap:owner    # create the first owner account
+```
+
+### Running the database tests
+
+They create and delete rows, so they read `TEST_DATABASE_URL` and deliberately ignore
+`DATABASE_URL` — a variable that is often already set in a shell, pointing at something
+else entirely. Without it the suite skips loudly rather than pretending to pass.
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/hostelflow_test npm run test:integration
+```
+
+CI runs them on every push against a throwaway PostgreSQL service container, which is where
+they actually execute for this project — see `.github/workflows/ci.yml`.
+
+### Configuration
+
+Copy `.env.example` to `.env` and read the comments; every variable is documented there.
+Generate secrets on the server with `openssl rand -base64 48`, never in a chat window and
+never committed. Nothing may be renamed to `NEXT_PUBLIC_*` — that prefix ships the value to
+every browser.
+
+## Deployment
+
+`docs/server-deployment.md` has the full procedure. In short:
+
+```bash
+cp .env.example .env    # then fill it in on the server
+docker compose build
+docker compose up -d
+docker compose exec app npm run db:seed
+docker compose exec app npm run bootstrap:owner
+```
+
+Caddy is the only container that publishes a port. PostgreSQL and MinIO are on an internal
+network and are unreachable from outside the host.
+
+Also see `docs/security.md`, `docs/backup-and-restore.md` and `docs/operations-runbook.md`.
 
 ## Demo roles
 
