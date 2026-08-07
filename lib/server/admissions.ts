@@ -435,18 +435,43 @@ export async function admitResident(
   } catch (error) {
     // A unique violation here is one of the guarantees doing its job. Translating it
     // gives the manager something actionable instead of a database error.
+    //
+    // Which guarantee fired has to be established by asking the database, not by reading
+    // the error. Prisma's driver adapter does not populate `meta.target` — it reports
+    // "Unique constraint failed on the (not available)" — so matching on the index name
+    // silently never fired, and the raw fault reached the caller.
+    //
+    // The transaction has rolled back by this point, so these reads see only rows that
+    // committed elsewhere: exactly the conflicting ones.
     if (isUniqueViolation(error)) {
-      const target = String(
-        (error as { meta?: { target?: unknown } }).meta?.target ?? "",
-      );
+      const [bedTaken, cnicActive, admissionLive] = await Promise.all([
+        prisma.bedAllocation.findFirst({
+          where: { activeBedId: parsed.bedId },
+          select: { id: true },
+        }),
+        prisma.resident.findFirst({
+          where: { hostelId: membership.hostelId, activeCnicKey: cnicNormalized },
+          select: { id: true },
+        }),
+        prisma.admission.findFirst({
+          where: {
+            hostelId: membership.hostelId,
+            resident: { cnicNormalized },
+            activeResidentId: { not: null },
+          },
+          select: { id: true },
+        }),
+      ]);
 
-      if (target.includes("activeBedId")) throw new BedUnavailableError();
-      if (target.includes("activeCnicKey")) {
+      // Bed first: in a race it is both the likeliest cause and the more actionable
+      // message, since choosing another bed is something the manager can do right now.
+      if (bedTaken) throw new BedUnavailableError();
+      if (cnicActive) {
         throw new DuplicateResidentError(
           "Somebody with this CNIC is already living here.",
         );
       }
-      if (target.includes("activeResidentId")) {
+      if (admissionLive) {
         throw new DuplicateResidentError("This resident already has a live admission.");
       }
     }
