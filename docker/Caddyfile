@@ -14,8 +14,9 @@
 	}
 
 	header {
-		# One year, and eligible for preload. Only sensible because this host is https-only.
-		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		# HSTS is not set here. next.config.ts sends it, so that both profiles emit the
+		# same policy; two sources meant this file promised `includeSubDomains; preload`
+		# while the application promised neither, and docs/security.md documented both.
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
@@ -37,6 +38,12 @@
 	header @private Cache-Control "private, no-store, max-age=0"
 
 	reverse_proxy app:3000 {
+		# Deleted before anything else: Caddy does not set CF-Connecting-IP, so anything
+		# arriving with it came from the caller. Passing it through would let a client
+		# choose the address written into every audit row.
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+
 		header_up X-Real-IP {remote_host}
 		# The app trusts X-Forwarded-For for audit logging only because this proxy is the
 		# single public entry point and overwrites it here.

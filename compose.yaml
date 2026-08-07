@@ -1,13 +1,23 @@
 # HostelFlow production stack.
 #
-# The shape that matters: Caddy is the only container that publishes a port. PostgreSQL and
-# MinIO sit on an internal network with no `ports:` mapping at all, so they are reachable
-# from the app container and from nowhere else — not from the host, not from the internet,
-# regardless of the server's firewall.
+# **This stack publishes no ports at all by default.** PostgreSQL, MinIO and the app are
+# reachable only over compose networks; the outside world reaches the app through a
+# Cloudflare tunnel, which dials out rather than accepting connections. Nothing here can be
+# port-scanned, and nothing contends for 80/443 on a server that is already serving other
+# sites — which is the situation on the pilot's box.
 #
-#   docker compose build
-#   docker compose up -d
-#   docker compose ps
+# Two deployment shapes, selected by profile:
+#
+#   docker compose up -d                       # uses COMPOSE_PROFILES from .env
+#   docker compose --profile tunnel up -d      # shared server, Cloudflare tunnel
+#   docker compose --profile standalone up -d  # dedicated server, Caddy owns 80/443
+#
+# `.env` sets COMPOSE_PROFILES=tunnel, so a bare `docker compose up -d` does the right
+# thing. Without it that command started the app, database, storage and backup with no
+# ingress at all: every service healthy, the site unreachable, and nothing in any log to
+# say why.
+#
+#   docker compose --profile tunnel ps
 #   docker compose logs --tail=200 app
 #
 # See docs/server-deployment.md before the first deployment.
@@ -20,10 +30,31 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    # Named variables rather than `env_file: .env`, which handed every service the whole
+    # file — including the tunnel token, which grants takeover of the public hostname and
+    # which the app has no use for. Any env disclosure should leak the app's own secrets,
+    # not the front door's.
     environment:
       NODE_ENV: production
       PORT: "3000"
+      APP_URL: ${APP_URL}
+      APP_DOMAIN: ${APP_DOMAIN}
+      AUTH_SECRET: ${AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_PRIVATE: ${MINIO_BUCKET_PRIVATE}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-8388608}
+      SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-120}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      # Which front end sits in front of us, and therefore which client-address header
+      # can be believed. Hardcoding this to `cloudflare` made the knob documented in
+      # .env.example do nothing, and under the standalone profile — where Caddy deletes
+      # CF-Connecting-IP — it meant every audit row recorded a NULL address.
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-cloudflare}
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,7 +69,9 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 3
-    # No ports. Caddy reaches the app over the `edge` network.
+    # No ports, in either profile. Whichever front end is in use — cloudflared or Caddy —
+    # reaches the app by service name over the `edge` network. Publishing even
+    # 127.0.0.1:3000 would be one more way in for anything else running on a shared host.
 
   postgres:
     image: postgres:17-bookworm
@@ -83,11 +116,21 @@ services:
       start_period: 30s
     # No ports: object storage is reachable only from the app container.
 
+  # Only for a dedicated server, where nothing else wants 80/443.
+  #
+  # On the pilot's machine another project's nginx container already holds both ports, so
+  # starting this would either fail to bind or disrupt a live site. It stays behind a
+  # profile rather than being deleted, because a future dedicated box is the simpler
+  # topology and this is the configuration for it.
   caddy:
     image: caddy:2-alpine
+    profiles: ["standalone"]
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      # NOTE: with this profile set TRUSTED_PROXY=reverse-proxy in .env. Left at
+      # `cloudflare` the app would look for a header Caddy deletes, and record no client
+      # address at all.
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -102,10 +145,47 @@ services:
       # QUIC / HTTP3.
       - "443:443/udp"
 
+  # The public entry point on a shared server.
+  #
+  # cloudflared makes an OUTBOUND connection to Cloudflare and receives traffic over it, so
+  # the host needs no open port, no certificate and no DNS pointing at its IP. Cloudflare
+  # terminates TLS and forwards to `app:3000` over the edge network.
+  #
+  # The tunnel's routing lives in the Cloudflare dashboard, not here: the token is the only
+  # thing this server holds. Create the tunnel under Zero Trust > Networks > Tunnels, add a
+  # public hostname mapping your domain to http://app:3000, and put the token in .env.
+  cloudflared:
+    # Pinned like every other image. This is the sole public entry point under the tunnel
+    # profile, and `latest` meant a bad upstream release could take the site down with no
+    # known-good version recorded to roll back to.
+    image: cloudflare/cloudflared:2025.8.1
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # The token goes in the environment, never in argv. As a command flag it was readable
+    # from the host process table — `ps auxww`, /proc/<pid>/cmdline — by any user on a box
+    # this project shares with two other applications, and it grants takeover of the
+    # public hostname.
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+    networks:
+      - edge
+    depends_on:
+      app:
+        condition: service_healthy
+
   backup:
     image: postgres:17-bookworm
     restart: unless-stopped
-    env_file: .env
+    # Only what backup.sh reads. It has no business holding the auth secret or the tunnel
+    # token.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DESTINATION: ${BACKUP_DESTINATION:-/backups}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
     # bash, not sh: the script relies on `pipefail` to notice a failed pg_dump, which
     # POSIX sh does not provide. Running it under sh silently reinstates the bug where a
     # truncated dump is promoted to a real backup.

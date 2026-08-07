@@ -155,6 +155,30 @@ configuration and rewrites the colour-opacity pipeline the approved design depen
 Migrating is its own change, guarded by the design-token tests. See
 [frontend-audit.md](frontend-audit.md).
 
+## 12. The public entry point is a tunnel, not a port
+
+The pilot server already runs two live projects; another project's nginx container holds
+80 and 443, and a second PostgreSQL is already published. Caddy could not have those ports
+without a fight it might win — taking a live site down.
+
+So the default deployment publishes **no ports at all**. cloudflared dials out to
+Cloudflare and receives traffic over that connection, Cloudflare terminates TLS, and the
+app is reached at `app:3000` on HostelFlow's own compose network.
+
+What this buys beyond avoiding the conflict: nothing in the stack can be port-scanned,
+there is no certificate to renew, and HostelFlow's availability is not coupled to another
+project's reverse proxy. What it costs: a dependency on Cloudflare, and routing that lives
+in their dashboard rather than in this repository — only the tunnel token sits on the
+server.
+
+The Caddy configuration remains behind the `standalone` profile, because a dedicated
+server is the simpler topology and that is the configuration for it.
+
+One correction this forced: audit logging read the _first_ entry of `X-Forwarded-For`,
+which was right when Caddy rewrote the header wholesale. Cloudflare **appends** instead, so
+the first entry is whatever the client sent — attacker-chosen. `CF-Connecting-IP` is used
+where present, and otherwise the last entry, being the one added by the nearest proxy.
+
 ## Still open
 
 - **PDF generation** (PDFKit or similar) is not chosen yet; receipts are stored as a JSON

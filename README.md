@@ -99,13 +99,22 @@ every browser.
 ```bash
 cp .env.example .env    # then fill it in on the server
 docker compose build
-docker compose up -d
+docker compose --profile tunnel up -d          # note the profile
 docker compose exec app npm run db:seed
 docker compose exec app npm run bootstrap:owner
 ```
 
-Caddy is the only container that publishes a port. PostgreSQL and MinIO are on an internal
-network and are unreachable from outside the host.
+**The profile is not optional.** `docker compose up -d` without one starts the app,
+database, storage and backup with no ingress container at all: everything reports healthy
+and the site is simply unreachable, with nothing in the logs to say why.
+
+- `--profile tunnel` — the default shape. Nothing publishes a port; cloudflared dials out
+  to Cloudflare and traffic arrives over that connection. Use this on a server that is
+  already running other things.
+- `--profile standalone` — a dedicated machine, where Caddy takes 80/443 and terminates
+  TLS itself.
+
+Either way PostgreSQL and MinIO sit on an internal network, unreachable from the host.
 
 Also see `docs/security.md`, `docs/backup-and-restore.md` and `docs/operations-runbook.md`.
 
