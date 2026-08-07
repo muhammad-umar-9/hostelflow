@@ -349,6 +349,77 @@ describe.skipIf(!hasDatabase)("admitting a resident", () => {
     expect(await prisma.resident.count({ where: { hostelId: hostel.hostelId } })).toBe(0);
   });
 
+  it("refuses a non-cash payment when the caller cannot approve payments", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+
+    // Cash at the desk is verified by the act of taking it. A bank transfer is a claim
+    // until someone reconciles it, which is what the proof queue is for.
+    const frontDesk = {
+      user: context.user,
+      membership: {
+        hostelId: hostel.hostelId,
+        role: "MANAGER",
+        permissions: { "payments.approve": false },
+      },
+    };
+
+    await expect(
+      admitResident(
+        admissionInput(hostel.bedIds[0], {
+          payment: { method: "BANK_TRANSFER", amountPkr: 10_800, paidAt: new Date() },
+        }),
+        frontDesk as never,
+      ),
+    ).rejects.toThrow(/payment-approval/i);
+
+    // The same manager may still admit against cash.
+    const ok = await admitResident(admissionInput(hostel.bedIds[0]), frontDesk as never);
+    expect(ok.receivedPkr).toBe(10_800);
+  });
+
+  it("refuses to admit when an active charge has no amount configured", async () => {
+    const { admitResident, ChargeConfigurationError } =
+      await import("@/lib/server/admissions");
+    const prisma = db();
+
+    // Active, but with no amount. Previously the deposit silently vanished from the
+    // invoice, the total and the ledger — money never charged and later owed back.
+    await prisma.chargeType.updateMany({
+      where: { hostelId: hostel.hostelId, kind: "SECURITY_DEPOSIT" },
+      data: { defaultAmountPkr: null },
+    });
+
+    await expect(
+      admitResident(admissionInput(hostel.bedIds[0]), context as never),
+    ).rejects.toBeInstanceOf(ChargeConfigurationError);
+  });
+
+  it("treats a repeated document id as one document, not as a missing one", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+    const prisma = db();
+
+    const object = await prisma.storedObject.create({
+      data: {
+        hostelId: hostel.hostelId,
+        kind: "CNIC_FRONT",
+        objectKey: `hostel/${hostel.hostelId}/cnic_front/${Math.random().toString(36).slice(2)}.jpg`,
+        bucket: "test",
+        mimeType: "image/jpeg",
+        sizeBytes: 1024,
+      },
+    });
+
+    const result = await admitResident(
+      admissionInput(hostel.bedIds[0], { documentIds: [object.id, object.id] }),
+      context as never,
+    );
+
+    const attached = await prisma.residentDocument.count({
+      where: { residentId: result.residentId },
+    });
+    expect(attached).toBe(1);
+  });
+
   it("refuses a bed belonging to another hostel", async () => {
     const { admitResident } = await import("@/lib/server/admissions");
     const other = await createTestHostel("admit-other");

@@ -83,6 +83,15 @@ export class MissingDocumentError extends Error {
   }
 }
 
+/** Raised when a charge type is active but carries no amount. */
+export class ChargeConfigurationError extends Error {
+  readonly status = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "ChargeConfigurationError";
+  }
+}
+
 /** Raised when contention meant the transaction could not complete in time. */
 export class AdmissionBusyError extends Error {
   readonly status = 503;
@@ -197,6 +206,22 @@ export async function admitResident(
     throw new AuthorizationError();
   }
 
+  // Cash handed over at the desk is verified by the act of taking it. A bank transfer or
+  // a wallet payment is a *claim* until somebody checks it against the account, which is
+  // what the payment-proof queue exists for — so marking one VERIFIED here needs the
+  // permission that governs approving payments. Without this, a manager whose owner had
+  // revoked payments.approve could still self-verify an EasyPaisa payment that had no
+  // proof attached and that nobody had reconciled.
+  if (
+    input.payment?.method !== PaymentMethod.CASH &&
+    !hasPermission(membership, "payments.approve")
+  ) {
+    throw new AuthorizationError(
+      "Recording a non-cash payment as verified needs the payment-approval permission. " +
+        "Take cash, or admit the resident and let them submit a payment proof.",
+    );
+  }
+
   // Normalized before the transaction so a malformed CNIC fails fast and cheaply.
   const cnicNormalized = normalizeCnic(parsed.resident.cnic);
   const phone = normalizeMobile(parsed.resident.phone);
@@ -224,9 +249,32 @@ export async function admitResident(
         const charges = await tx.chargeType.findMany({
           where: { hostelId: membership.hostelId, active: true },
         });
-        const amountFor = (kind: ChargeKind) =>
-          charges.find((charge) => charge.kind === kind && charge.oneTime)
-            ?.defaultAmountPkr ?? 0;
+        /**
+         * The configured amount for a charge kind, or 0 when the hostel does not levy it.
+         *
+         * A hostel legitimately may not take a deposit, so "no such charge type" means
+         * zero. But a charge type that exists and is active while carrying no amount is a
+         * misconfiguration, not a decision — and returning 0 for it made the deposit
+         * vanish from the invoice, the total and the deposit ledger without a word.
+         * Silently not charging Rs 3,000 is the kind of bug an owner discovers at
+         * checkout, when they owe a refund for money they never took.
+         *
+         * The `oneTime` flag is no longer part of the lookup either: the kind already
+         * identifies the charge, and matching on a secondary flag meant an owner toggling
+         * it made the charge disappear rather than raise anything.
+         */
+        const amountFor = (kind: ChargeKind) => {
+          const charge = charges.find((candidate) => candidate.kind === kind);
+          if (!charge) return 0;
+
+          if (charge.defaultAmountPkr === null) {
+            throw new ChargeConfigurationError(
+              `The "${charge.label}" charge is active but has no amount set. ` +
+                "Set its amount in settings, or deactivate it.",
+            );
+          }
+          return charge.defaultAmountPkr;
+        };
 
         const breakdown = calculateAdmissionCharges({
           monthlyRentPkr: bed.room.roomType.monthlyRentPkr,
@@ -430,10 +478,15 @@ export async function admitResident(
 
         // 10. Attach the documents uploaded earlier, scoped to this hostel so an id from
         //     elsewhere cannot be smuggled onto a resident's file.
-        if (parsed.documentIds.length > 0) {
+        // Deduplicated first. Comparing raw counts treated ["a","a"] as one id missing
+        // and aborted a perfectly valid admission with "0 documents could not be
+        // attached" — a message that is both wrong and impossible to act on.
+        const documentIds = [...new Set(parsed.documentIds)];
+
+        if (documentIds.length > 0) {
           const objects = await tx.storedObject.findMany({
             where: {
-              id: { in: parsed.documentIds },
+              id: { in: documentIds },
               hostelId: membership.hostelId,
               deletedAt: null,
             },
@@ -443,12 +496,27 @@ export async function admitResident(
           // Every id must resolve. Dropping the ones that do not meant an admission could
           // report success while the resident's CNIC scans were quietly absent from their
           // file — discovered weeks later by whoever needs them for police verification.
-          if (objects.length !== parsed.documentIds.length) {
+          if (objects.length !== documentIds.length) {
             const found = new Set(objects.map((object) => object.id));
-            const missing = parsed.documentIds.filter((id) => !found.has(id));
+            const missing = documentIds.filter((id) => !found.has(id));
             throw new MissingDocumentError(
               `${missing.length} uploaded document(s) could not be attached. ` +
                 "Re-upload them and try again.",
+            );
+          }
+
+          // ResidentDocument.objectId is globally unique, so an id already attached to
+          // somebody else raises a P2002 that none of the probes in the catch recognize —
+          // the manager would have seen a raw "Unique constraint failed" 500. Checking
+          // first turns it into a sentence describing what happened.
+          const alreadyAttached = await tx.residentDocument.findFirst({
+            where: { objectId: { in: documentIds } },
+            select: { objectId: true },
+          });
+          if (alreadyAttached) {
+            throw new MissingDocumentError(
+              "One of those documents is already attached to another resident. " +
+                "Upload a fresh copy for this admission.",
             );
           }
 

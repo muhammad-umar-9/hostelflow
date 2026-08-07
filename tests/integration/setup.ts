@@ -46,7 +46,11 @@ if (hasDatabase && process.env.DATABASE_URL) {
         "DATABASE_URL and TEST_DATABASE_URL point at different databases. The modules\n" +
         "under test write through DATABASE_URL, so the suite would create and delete rows\n" +
         "in whatever that is — while asserting against the other one.\n\n" +
-        "Set both to the same disposable database, or unset DATABASE_URL.",
+        "Set both to the same disposable database. Unsetting DATABASE_URL is not an\n" +
+        "option: the modules under test build their client through lib/server/db.ts,\n" +
+        "which also requires APP_URL, AUTH_SECRET, MINIO_ENDPOINT, MINIO_ROOT_USER,\n" +
+        "MINIO_ROOT_PASSWORD and MINIO_BUCKET_PRIVATE. See the integration job in\n" +
+        ".github/workflows/ci.yml for a working set of throwaway values.",
     );
   }
 }
@@ -82,6 +86,18 @@ export function db(): PrismaClient {
 export async function disconnect(): Promise<void> {
   await client?.$disconnect();
   client = null;
+
+  // The application's own client, cached on globalThis by lib/server/db.ts, holds a
+  // separate pg pool. Tests that exercise real server modules open it, and leaving it
+  // open keeps the worker's event loop alive after the last assertion — vitest then
+  // either hangs or force-terminates, and a force-terminated run is a run whose result
+  // nobody should trust.
+  try {
+    const { prisma } = await import("@/lib/server/db");
+    await prisma.$disconnect();
+  } catch {
+    // Never opened by this file, which is fine — nothing to close.
+  }
 }
 
 /** Unique per test run, so parallel runs and reruns never collide on a slug or a CNIC. */
