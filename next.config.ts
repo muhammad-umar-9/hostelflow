@@ -16,7 +16,10 @@ const isProduction = process.env.NODE_ENV === "production";
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  // 'unsafe-eval' in development only: Next's dev overlay evaluates code to reconstruct
+  // server stack traces, and without it React logs an eval error instead of showing the
+  // real one. Production never carries it.
+  `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

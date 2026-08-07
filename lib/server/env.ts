@@ -55,6 +55,17 @@ const schema = z.object({
   SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().max(3600).default(120),
 
   /**
+   * Which front end sits in front of the app, and therefore which client-address header
+   * can be believed when writing audit rows.
+   *
+   * Validated rather than read raw from process.env: every value here is an ordinary
+   * request header that a client can send, so a typo would silently switch off audit
+   * address capture across the whole deployment with nothing to notice. An unknown value
+   * now fails at startup instead.
+   */
+  TRUSTED_PROXY: z.enum(["cloudflare", "reverse-proxy", "none"]).default("none"),
+
+  /**
    * Enables the development-only demo mode. Refused outside development by the check
    * below, so it cannot be switched on in production by setting an env var.
    */

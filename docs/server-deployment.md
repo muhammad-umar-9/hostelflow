@@ -70,6 +70,20 @@ it there, and it is not reachable from anywhere else.
 Copy the tunnel token from the install command Cloudflare shows. It is a credential:
 anything holding it can serve traffic for that hostname.
 
+### Turn on Always Use HTTPS — this step is not optional
+
+**SSL/TLS → Edge Certificates → Always Use HTTPS: On.**
+
+Caddy used to issue the HTTP→HTTPS redirect. Under the tunnel it is not running, and
+nothing in the application redirects either, so without this setting the login page is
+reachable over plain `http://`. The session cookie is issued `Secure`; a browser silently
+discards it on an insecure origin. The symptom is the worst kind: sign-in appears to work,
+the page returns to the login screen, and nothing appears in any log — because from the
+server's point of view nothing went wrong.
+
+While you are there, set **SSL/TLS → Overview → Full**. `Flexible` would have Cloudflare
+talk plain HTTP to the tunnel and tell the browser the connection is secure.
+
 ## 4. Configure
 
 ```bash
@@ -97,6 +111,8 @@ Set in `.env`:
 | `DATABASE_URL`            | must contain the same password  |
 | `MINIO_ROOT_PASSWORD`     | third generated value           |
 | `CLOUDFLARE_TUNNEL_TOKEN` | the token from step 3           |
+| `COMPOSE_PROFILES`        | `tunnel`                        |
+| `TRUSTED_PROXY`           | `cloudflare`                    |
 
 `APP_URL` must be the `https://` address even though the app itself speaks plain HTTP to
 cloudflared. Cloudflare terminates TLS; session cookies are issued `Secure`, and a browser
@@ -109,9 +125,13 @@ as the app failing its health check while Postgres looks perfectly healthy.
 
 ```bash
 docker compose build
-docker compose --profile tunnel up -d
-docker compose --profile tunnel ps
+docker compose up -d          # .env sets COMPOSE_PROFILES=tunnel
+docker compose ps
 ```
+
+If you ever run this without a profile selected, the stack comes up with **no ingress
+container**: every service healthy, the site unreachable, nothing in the logs. `.env`
+carries `COMPOSE_PROFILES=tunnel` so the bare command does the right thing.
 
 Every service should reach `healthy`, and the `PORTS` column should be **empty for every
 one of them**. If anything shows a published port, stop and find out why before continuing

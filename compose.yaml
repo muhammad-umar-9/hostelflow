@@ -8,8 +8,14 @@
 #
 # Two deployment shapes, selected by profile:
 #
-#   docker compose --profile tunnel up -d      # shared server, Cloudflare tunnel (default)
+#   docker compose up -d                       # uses COMPOSE_PROFILES from .env
+#   docker compose --profile tunnel up -d      # shared server, Cloudflare tunnel
 #   docker compose --profile standalone up -d  # dedicated server, Caddy owns 80/443
+#
+# `.env` sets COMPOSE_PROFILES=tunnel, so a bare `docker compose up -d` does the right
+# thing. Without it that command started the app, database, storage and backup with no
+# ingress at all: every service healthy, the site unreachable, and nothing in any log to
+# say why.
 #
 #   docker compose --profile tunnel ps
 #   docker compose logs --tail=200 app
@@ -44,9 +50,11 @@ services:
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-8388608}
       SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-120}
       DEMO_MODE: ${DEMO_MODE:-false}
-      # Which front end sits in front of us, and therefore which client-address header can
-      # be believed. Set per profile below rather than guessed at run time.
-      TRUSTED_PROXY: cloudflare
+      # Which front end sits in front of us, and therefore which client-address header
+      # can be believed. Hardcoding this to `cloudflare` made the knob documented in
+      # .env.example do nothing, and under the standalone profile — where Caddy deletes
+      # CF-Connecting-IP — it meant every audit row recorded a NULL address.
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-cloudflare}
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,9 +128,9 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
-      # NOTE: when running this profile, set TRUSTED_PROXY=reverse-proxy on the `app`
-      # service. Leaving it as `cloudflare` would make the app believe a CF-Connecting-IP
-      # header that Caddy does not control.
+      # NOTE: with this profile set TRUSTED_PROXY=reverse-proxy in .env. Left at
+      # `cloudflare` the app would look for a header Caddy deletes, and record no client
+      # address at all.
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

@@ -72,7 +72,8 @@ assumes either one is present.
 - **standalone**: Caddy terminates HTTPS with automatically renewed certificates and
   redirects HTTP.
 
-HSTS (1 year, `includeSubDomains`, `preload`), `X-Content-Type-Options: nosniff`,
+HSTS (1 year, no `includeSubDomains`, no `preload` — see below),
+`X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, a restrictive
 `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, and a CSP that permits no
 third-party scripts and no framing — all emitted by **`next.config.ts`**, so they hold

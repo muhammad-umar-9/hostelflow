@@ -2,6 +2,7 @@ import "server-only";
 
 import { headers } from "next/headers";
 import { redact, redactText } from "@/lib/domain/redaction";
+import { serverEnv } from "./env";
 import type { DbClient } from "./db";
 import { prisma } from "./db";
 
@@ -102,21 +103,7 @@ export async function recordAudit(
   });
 }
 
-/**
- * Best-effort client details for an audited request.
- *
- * Reading the FIRST entry of `x-forwarded-for` was safe only while Caddy was the single
- * public entry point, rewriting the header wholesale. Behind Cloudflare it is not:
- * Cloudflare *appends* the real client address to whatever the caller already sent, so a
- * request carrying `X-Forwarded-For: 1.2.3.4` arrives as `1.2.3.4, <real ip>` and the
- * first entry is a value the attacker chose. Audit rows naming an address of the
- * attacker's choosing are worse than audit rows naming none.
- *
- * `CF-Connecting-IP` is set by Cloudflare and overwritten on every request, so a client
- * cannot forge it. It is preferred; otherwise the LAST entry of `x-forwarded-for` is
- * taken, that being the one appended by the proxy nearest to us rather than the one the
- * client supplied.
- */
+/** Best-effort client details for an audited request. See `clientAddress` below. */
 export async function requestContext(): Promise<{
   ipAddress: string | null;
   userAgent: string | null;
@@ -145,7 +132,7 @@ export async function requestContext(): Promise<{
  * no address is honest and one with a forged address is not.
  */
 function clientAddress(headerList: Headers): string | null {
-  const trusted = process.env.TRUSTED_PROXY;
+  const trusted = serverEnv().TRUSTED_PROXY;
 
   if (trusted === "cloudflare") {
     // Cloudflare overwrites this on every request, so a client cannot forge it.
