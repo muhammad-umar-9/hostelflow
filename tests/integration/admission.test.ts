@@ -193,11 +193,13 @@ describe.skipIf(!hasDatabase)("admitting a resident", () => {
     });
     expect(invoice.status).toBe("PARTIAL");
 
-    // Rent is settled first, so 8,000 covers 7,500 rent and 500 of the deposit.
+    // 8,000 settles 7,500 rent, then the 300 police form, leaving 200 towards the
+    // refundable deposit. The hostel is short of money it holds rather than money it has
+    // earned, which is the right way round.
     const deposit = await prisma.securityDepositLedger.findFirst({
       where: { admissionId: result.admissionId },
     });
-    expect(deposit?.amountPkr).toBe(500);
+    expect(deposit?.amountPkr).toBe(200);
   });
 
   it("gives exactly one winner when two admissions race for the same bed", async () => {
@@ -271,6 +273,80 @@ describe.skipIf(!hasDatabase)("admitting a resident", () => {
     // three distinct numbers rather than colliding on the unique index.
     const numbers = results.map((r) => r.receiptNumber);
     expect(new Set(numbers).size).toBe(3);
+  });
+
+  it("refuses more money than the admission costs, rather than losing the difference", async () => {
+    const { admitResident, OverpaymentError } = await import("@/lib/server/admissions");
+
+    await expect(
+      admitResident(
+        admissionInput(hostel.bedIds[0], {
+          payment: { method: "CASH", amountPkr: 12_000, paidAt: new Date() },
+        }),
+        context as never,
+      ),
+    ).rejects.toBeInstanceOf(OverpaymentError);
+
+    // Nothing was written: no half-admitted resident holding a bed.
+    const prisma = db();
+    expect(await prisma.resident.count({ where: { hostelId: hostel.hostelId } })).toBe(0);
+    const bed = await prisma.bed.findUniqueOrThrow({ where: { id: hostel.bedIds[0] } });
+    expect(bed.status).toBe("VACANT");
+  });
+
+  it("applies a part payment to rent before the refundable deposit", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+    const prisma = db();
+
+    // Rs 8,000 against 7,500 rent + 300 police + 3,000 deposit. Rent and the police form
+    // are settled first, leaving 200 towards the deposit — not 3,000, which is what an
+    // unordered allocation could have recorded and then owed back at checkout.
+    const result = await admitResident(
+      admissionInput(hostel.bedIds[0], {
+        payment: { method: "CASH", amountPkr: 8000, paidAt: new Date() },
+      }),
+      context as never,
+    );
+
+    const deposit = await prisma.securityDepositLedger.findFirst({
+      where: { admissionId: result.admissionId },
+    });
+    expect(deposit?.amountPkr).toBe(200);
+    expect(result.balancePkr).toBe(2800);
+  });
+
+  it("refuses a document id that does not resolve, rather than admitting without it", async () => {
+    const { admitResident, MissingDocumentError } =
+      await import("@/lib/server/admissions");
+
+    await expect(
+      admitResident(
+        admissionInput(hostel.bedIds[0], { documentIds: ["does-not-exist"] }),
+        context as never,
+      ),
+    ).rejects.toBeInstanceOf(MissingDocumentError);
+  });
+
+  it("refuses a caller whose context lacks the bed-allocation permission", async () => {
+    const { admitResident } = await import("@/lib/server/admissions");
+
+    // A manager whose owner switched off beds.allocate. Supplying the context must not
+    // be a way around the permission check.
+    const restricted = {
+      user: context.user,
+      membership: {
+        hostelId: hostel.hostelId,
+        role: "MANAGER",
+        permissions: { "beds.allocate": false },
+      },
+    };
+
+    await expect(
+      admitResident(admissionInput(hostel.bedIds[0]), restricted as never),
+    ).rejects.toThrow();
+
+    const prisma = db();
+    expect(await prisma.resident.count({ where: { hostelId: hostel.hostelId } })).toBe(0);
   });
 
   it("refuses a bed belonging to another hostel", async () => {

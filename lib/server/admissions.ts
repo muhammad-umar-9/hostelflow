@@ -19,7 +19,13 @@ import { calculateAdmissionCharges } from "@/lib/domain/charges";
 import { normalizeCnic, normalizeMobile } from "@/lib/domain/identity";
 import { assertPositivePkr } from "@/lib/domain/money";
 import { optionalRequestContext, recordAudit } from "./audit";
-import { NotFoundError, requirePermission, type AuthContext } from "./authz";
+import {
+  AuthorizationError,
+  NotFoundError,
+  hasPermission,
+  requirePermission,
+  type AuthContext,
+} from "./authz";
 import { prisma, type TransactionClient } from "./db";
 
 /**
@@ -56,6 +62,33 @@ export class DuplicateResidentError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DuplicateResidentError";
+  }
+}
+
+/** Raised when more money is tendered than the admission actually costs. */
+export class OverpaymentError extends Error {
+  readonly status = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "OverpaymentError";
+  }
+}
+
+/** Raised when a supplied document id does not resolve to this hostel's storage. */
+export class MissingDocumentError extends Error {
+  readonly status = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingDocumentError";
+  }
+}
+
+/** Raised when contention meant the transaction could not complete in time. */
+export class AdmissionBusyError extends Error {
+  readonly status = 503;
+  constructor(message = "The desk is busy. Try that admission again.") {
+    super(message);
+    this.name = "AdmissionBusyError";
   }
 }
 
@@ -153,7 +186,16 @@ export async function admitResident(
   context?: AuthContext,
 ): Promise<AdmitResidentResult> {
   const parsed = admitResidentSchema.parse(input);
+
+  // The permission is checked on BOTH paths. Accepting a caller-supplied context and
+  // skipping the check meant any route that resolved a session with requireStaff() and
+  // forwarded it could admit residents and take money — including a manager whose owner
+  // had explicitly revoked beds.allocate, and a resident-role membership. A convenience
+  // parameter must not be a way around authorization.
   const { user, membership } = context ?? (await requirePermission("beds.allocate"));
+  if (context && !hasPermission(context.membership, "beds.allocate")) {
+    throw new AuthorizationError();
+  }
 
   // Normalized before the transaction so a malformed CNIC fails fast and cheaply.
   const cnicNormalized = normalizeCnic(parsed.resident.cnic);
@@ -168,271 +210,341 @@ export async function admitResident(
   const requestMeta = await optionalRequestContext();
 
   try {
-    return await prisma.$transaction(async (tx) => {
-      // 1. The bed, scoped to this hostel, with the room type that sets the rent.
-      const bed = await tx.bed.findFirst({
-        where: { id: parsed.bedId, hostelId: membership.hostelId },
-        include: { room: { include: { roomType: true } } },
-      });
-      if (!bed) throw new NotFoundError();
-      if (bed.status !== BedStatus.VACANT) throw new BedUnavailableError();
+    return await prisma.$transaction(
+      async (tx) => {
+        // 1. The bed, scoped to this hostel, with the room type that sets the rent.
+        const bed = await tx.bed.findFirst({
+          where: { id: parsed.bedId, hostelId: membership.hostelId },
+          include: { room: { include: { roomType: true } } },
+        });
+        if (!bed) throw new NotFoundError();
+        if (bed.status !== BedStatus.VACANT) throw new BedUnavailableError();
 
-      // 2. Charges from configuration. Nothing here comes from the client.
-      const charges = await tx.chargeType.findMany({
-        where: { hostelId: membership.hostelId, active: true },
-      });
-      const amountFor = (kind: ChargeKind) =>
-        charges.find((charge) => charge.kind === kind && charge.oneTime)
-          ?.defaultAmountPkr ?? 0;
+        // 2. Charges from configuration. Nothing here comes from the client.
+        const charges = await tx.chargeType.findMany({
+          where: { hostelId: membership.hostelId, active: true },
+        });
+        const amountFor = (kind: ChargeKind) =>
+          charges.find((charge) => charge.kind === kind && charge.oneTime)
+            ?.defaultAmountPkr ?? 0;
 
-      const breakdown = calculateAdmissionCharges({
-        monthlyRentPkr: bed.room.roomType.monthlyRentPkr,
-        securityDepositPkr: amountFor(ChargeKind.SECURITY_DEPOSIT),
-        policeFormPkr: amountFor(ChargeKind.POLICE_FORM),
-      });
+        const breakdown = calculateAdmissionCharges({
+          monthlyRentPkr: bed.room.roomType.monthlyRentPkr,
+          securityDepositPkr: amountFor(ChargeKind.SECURITY_DEPOSIT),
+          policeFormPkr: amountFor(ChargeKind.POLICE_FORM),
+        });
 
-      // 3. Resident. activeCnicKey mirrors the CNIC so the database refuses a second
-      //    active resident with the same identity number in this hostel.
-      const resident = await tx.resident.create({
-        data: {
-          hostelId: membership.hostelId,
-          fullName: parsed.resident.fullName,
-          cnicNormalized,
-          activeCnicKey: cnicNormalized,
-          dateOfBirth: parsed.resident.dateOfBirth ?? null,
-          phone,
-          addressLine: parsed.resident.addressLine,
-          city: parsed.resident.city,
-          institution: parsed.resident.institution || null,
-          occupation: parsed.resident.occupation,
-          status: ResidentStatus.ACTIVE,
-          guardians: {
-            create: {
-              fullName: parsed.guardian.fullName,
-              relationship: parsed.guardian.relationship,
-              cnicNormalized: guardianCnic,
-              phone: guardianPhone,
-              isEmergencyContact: true,
+        // Refused rather than absorbed. Anything tendered above the total had nowhere to go:
+        // it was stored on the payment row but excluded from the allocations and from the
+        // receipt, so a resident handing over Rs 12,000 against Rs 10,800 received a receipt
+        // saying 10,800 and the remaining 1,200 existed in no total anybody would ever read.
+        // Advances are a real feature with a ledger of their own; silently swallowing the
+        // difference is not a substitute for it.
+        if (parsed.payment.amountPkr > breakdown.totalPkr) {
+          throw new OverpaymentError(
+            `Rs ${parsed.payment.amountPkr.toLocaleString("en-US")} is more than the ` +
+              `Rs ${breakdown.totalPkr.toLocaleString("en-US")} due. Collect the exact ` +
+              "amount; advances are not supported yet.",
+          );
+        }
+
+        // 3. Resident. activeCnicKey mirrors the CNIC so the database refuses a second
+        //    active resident with the same identity number in this hostel.
+        const resident = await tx.resident.create({
+          data: {
+            hostelId: membership.hostelId,
+            fullName: parsed.resident.fullName,
+            cnicNormalized,
+            activeCnicKey: cnicNormalized,
+            dateOfBirth: parsed.resident.dateOfBirth ?? null,
+            phone,
+            addressLine: parsed.resident.addressLine,
+            city: parsed.resident.city,
+            institution: parsed.resident.institution || null,
+            occupation: parsed.resident.occupation,
+            status: ResidentStatus.ACTIVE,
+            guardians: {
+              create: {
+                fullName: parsed.guardian.fullName,
+                relationship: parsed.guardian.relationship,
+                cnicNormalized: guardianCnic,
+                phone: guardianPhone,
+                isEmergencyContact: true,
+              },
             },
           },
-        },
-      });
+        });
 
-      // 4. Admission, with the rent agreed today frozen onto it.
-      const admission = await tx.admission.create({
-        data: {
-          hostelId: membership.hostelId,
-          residentId: resident.id,
-          status: AdmissionStatus.ACTIVE,
-          activeResidentId: resident.id,
-          joiningDate: parsed.joiningDate,
-          agreedMonthlyRentPkr: bed.room.roomType.monthlyRentPkr,
-        },
-      });
-
-      // 5. The bed claim. This insert is the race: activeBedId is unique, so a second
-      //    concurrent admission for the same bed fails here rather than double-booking.
-      await tx.bedAllocation.create({
-        data: {
-          hostelId: membership.hostelId,
-          bedId: bed.id,
-          admissionId: admission.id,
-          residentId: resident.id,
-          activeBedId: bed.id,
-          createdByUserId: user.id,
-        },
-      });
-
-      await tx.bed.update({
-        where: { id: bed.id },
-        data: { status: BedStatus.OCCUPIED },
-      });
-
-      // 6. Invoice for the admission charges.
-      const invoice = await tx.invoice.create({
-        data: {
-          hostelId: membership.hostelId,
-          residentId: resident.id,
-          admissionId: admission.id,
-          kind: InvoiceKind.ADMISSION,
-          status: InvoiceStatus.ISSUED,
-          number: await nextNumber(tx, membership.hostelId, "invoice"),
-          issuedAt: new Date(),
-          dueDate: parsed.joiningDate,
-          totalPkr: breakdown.totalPkr,
-          lines: {
-            create: breakdown.lines.map((line) => ({
-              kind: line.kind as ChargeKind,
-              description: line.label,
-              amountPkr: line.amountPkr,
-              chargeTypeId:
-                charges.find((charge) => charge.kind === (line.kind as ChargeKind))?.id ??
-                null,
-            })),
+        // 4. Admission, with the rent agreed today frozen onto it.
+        const admission = await tx.admission.create({
+          data: {
+            hostelId: membership.hostelId,
+            residentId: resident.id,
+            status: AdmissionStatus.ACTIVE,
+            activeResidentId: resident.id,
+            joiningDate: parsed.joiningDate,
+            agreedMonthlyRentPkr: bed.room.roomType.monthlyRentPkr,
           },
-        },
-        include: { lines: true },
-      });
-
-      // 7. The payment, and how it splits across the invoice lines. Allocating in line
-      //    order means a short payment settles rent first and leaves the deposit
-      //    outstanding, which is the order the hostel actually cares about.
-      const payment = await tx.payment.create({
-        data: {
-          hostelId: membership.hostelId,
-          residentId: resident.id,
-          admissionId: admission.id,
-          method: parsed.payment.method,
-          status: PaymentStatus.VERIFIED,
-          amountPkr: parsed.payment.amountPkr,
-          reference: parsed.payment.reference || null,
-          paidAt: parsed.payment.paidAt,
-          verifiedByUserId: user.id,
-          verifiedAt: new Date(),
-        },
-      });
-
-      let remaining = parsed.payment.amountPkr;
-      let depositReceivedPkr = 0;
-
-      for (const line of invoice.lines) {
-        if (remaining <= 0) break;
-        const applied = Math.min(remaining, line.amountPkr);
-
-        await tx.paymentAllocation.create({
-          data: { paymentId: payment.id, invoiceLineId: line.id, amountPkr: applied },
         });
-        remaining -= applied;
 
-        if (line.kind === ChargeKind.SECURITY_DEPOSIT) depositReceivedPkr = applied;
-      }
-
-      const receivedPkr = parsed.payment.amountPkr - remaining;
-      const balancePkr = Math.max(0, breakdown.totalPkr - receivedPkr);
-
-      if (balancePkr === 0) {
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: { status: InvoiceStatus.PAID },
+        // 5. The bed claim. This insert is the race: activeBedId is unique, so a second
+        //    concurrent admission for the same bed fails here rather than double-booking.
+        await tx.bedAllocation.create({
+          data: {
+            hostelId: membership.hostelId,
+            bedId: bed.id,
+            admissionId: admission.id,
+            residentId: resident.id,
+            activeBedId: bed.id,
+            createdByUserId: user.id,
+          },
         });
-      } else if (receivedPkr > 0) {
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: { status: InvoiceStatus.PARTIAL },
-        });
-      }
 
-      // 8. The deposit is a ledger entry, never a column. Only what was actually
-      //    collected towards it is recorded.
-      if (depositReceivedPkr > 0) {
-        await tx.securityDepositLedger.create({
+        await tx.bed.update({
+          where: { id: bed.id },
+          data: { status: BedStatus.OCCUPIED },
+        });
+
+        // 6. Invoice for the admission charges.
+        const invoice = await tx.invoice.create({
           data: {
             hostelId: membership.hostelId,
             residentId: resident.id,
             admissionId: admission.id,
-            entryType: DepositEntryType.RECEIVED,
-            amountPkr: depositReceivedPkr,
-            reason: "Received at admission",
-            recordedByUserId: user.id,
+            kind: InvoiceKind.ADMISSION,
+            status: InvoiceStatus.ISSUED,
+            number: await nextNumber(tx, membership.hostelId, "invoice"),
+            issuedAt: new Date(),
+            dueDate: parsed.joiningDate,
+            totalPkr: breakdown.totalPkr,
+            lines: {
+              create: breakdown.lines.map((line) => ({
+                kind: line.kind as ChargeKind,
+                description: line.label,
+                amountPkr: line.amountPkr,
+                chargeTypeId:
+                  charges.find((charge) => charge.kind === (line.kind as ChargeKind))
+                    ?.id ?? null,
+              })),
+            },
           },
+          include: { lines: true },
         });
-      }
 
-      // 9. Police verification starts its own track. Paying the form charge does not
-      //    make anybody verified.
-      await tx.policeVerification.create({
-        data: {
-          hostelId: membership.hostelId,
-          residentId: resident.id,
-          admissionId: admission.id,
-          status: PoliceStatus.NOT_STARTED,
-          updatedByUserId: user.id,
-          events: { create: { status: PoliceStatus.NOT_STARTED, actorUserId: user.id } },
-        },
-      });
-
-      // 10. Attach the documents uploaded earlier, scoped to this hostel so an id from
-      //     elsewhere cannot be smuggled onto a resident's file.
-      if (parsed.documentIds.length > 0) {
-        const objects = await tx.storedObject.findMany({
-          where: {
-            id: { in: parsed.documentIds },
+        // 7. The payment, and how it splits across the invoice lines. Allocating in line
+        //    order means a short payment settles rent first and leaves the deposit
+        //    outstanding, which is the order the hostel actually cares about.
+        const payment = await tx.payment.create({
+          data: {
             hostelId: membership.hostelId,
-            deletedAt: null,
+            residentId: resident.id,
+            admissionId: admission.id,
+            method: parsed.payment.method,
+            status: PaymentStatus.VERIFIED,
+            amountPkr: parsed.payment.amountPkr,
+            reference: parsed.payment.reference || null,
+            paidAt: parsed.payment.paidAt,
+            verifiedByUserId: user.id,
+            verifiedAt: new Date(),
           },
-          select: { id: true, kind: true },
         });
 
-        for (const object of objects) {
-          await tx.residentDocument.create({
-            data: { residentId: resident.id, objectId: object.id, kind: object.kind },
+        let remaining = parsed.payment.amountPkr;
+        let depositReceivedPkr = 0;
+
+        // Explicit priority, not the order the rows came back in. `include` carries no
+        // ORDER BY and Postgres promises nothing, so a part payment could have been applied
+        // to the deposit first — recording a Rs 3,000 deposit against Rs 8,000 tendered and
+        // creating a refund liability at checkout that was never collected.
+        //
+        // Rent first because it is the debt that recurs, the police form next because it is
+        // small and one-off, and the refundable deposit last: money the hostel holds rather
+        // than earns is the right thing to be short of.
+        const priority: Record<string, number> = {
+          [ChargeKind.RENT]: 0,
+          [ChargeKind.POLICE_FORM]: 1,
+          [ChargeKind.OTHER]: 2,
+          [ChargeKind.SECURITY_DEPOSIT]: 3,
+        };
+        const orderedLines = [...invoice.lines].sort(
+          (a, b) => (priority[a.kind] ?? 99) - (priority[b.kind] ?? 99),
+        );
+
+        for (const line of orderedLines) {
+          if (remaining <= 0) break;
+          const applied = Math.min(remaining, line.amountPkr);
+
+          await tx.paymentAllocation.create({
+            data: { paymentId: payment.id, invoiceLineId: line.id, amountPkr: applied },
+          });
+          remaining -= applied;
+
+          if (line.kind === ChargeKind.SECURITY_DEPOSIT) depositReceivedPkr = applied;
+        }
+
+        const receivedPkr = parsed.payment.amountPkr - remaining;
+        const balancePkr = Math.max(0, breakdown.totalPkr - receivedPkr);
+
+        if (balancePkr === 0) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { status: InvoiceStatus.PAID },
+          });
+        } else if (receivedPkr > 0) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { status: InvoiceStatus.PARTIAL },
           });
         }
-      }
 
-      // 11. The receipt, built from what was just written rather than from the request.
-      const receipt = await tx.receipt.create({
-        data: {
-          hostelId: membership.hostelId,
+        // 8. The deposit is a ledger entry, never a column. Only what was actually
+        //    collected towards it is recorded.
+        if (depositReceivedPkr > 0) {
+          await tx.securityDepositLedger.create({
+            data: {
+              hostelId: membership.hostelId,
+              residentId: resident.id,
+              admissionId: admission.id,
+              entryType: DepositEntryType.RECEIVED,
+              amountPkr: depositReceivedPkr,
+              reason: "Received at admission",
+              recordedByUserId: user.id,
+            },
+          });
+        }
+
+        // 9. Police verification starts its own track. Paying the form charge does not
+        //    make anybody verified.
+        await tx.policeVerification.create({
+          data: {
+            hostelId: membership.hostelId,
+            residentId: resident.id,
+            admissionId: admission.id,
+            status: PoliceStatus.NOT_STARTED,
+            updatedByUserId: user.id,
+            events: {
+              create: { status: PoliceStatus.NOT_STARTED, actorUserId: user.id },
+            },
+          },
+        });
+
+        // 10. Attach the documents uploaded earlier, scoped to this hostel so an id from
+        //     elsewhere cannot be smuggled onto a resident's file.
+        if (parsed.documentIds.length > 0) {
+          const objects = await tx.storedObject.findMany({
+            where: {
+              id: { in: parsed.documentIds },
+              hostelId: membership.hostelId,
+              deletedAt: null,
+            },
+            select: { id: true, kind: true },
+          });
+
+          // Every id must resolve. Dropping the ones that do not meant an admission could
+          // report success while the resident's CNIC scans were quietly absent from their
+          // file — discovered weeks later by whoever needs them for police verification.
+          if (objects.length !== parsed.documentIds.length) {
+            const found = new Set(objects.map((object) => object.id));
+            const missing = parsed.documentIds.filter((id) => !found.has(id));
+            throw new MissingDocumentError(
+              `${missing.length} uploaded document(s) could not be attached. ` +
+                "Re-upload them and try again.",
+            );
+          }
+
+          for (const object of objects) {
+            await tx.residentDocument.create({
+              data: { residentId: resident.id, objectId: object.id, kind: object.kind },
+            });
+          }
+        }
+
+        // 11. The receipt, built from what was just written rather than from the request.
+        const receipt = await tx.receipt.create({
+          data: {
+            hostelId: membership.hostelId,
+            residentId: resident.id,
+            admissionId: admission.id,
+            paymentId: payment.id,
+            kind: ReceiptKind.ADMISSION,
+            number: await nextNumber(tx, membership.hostelId, "receipt"),
+            totalReceivedPkr: receivedPkr,
+            balancePkr,
+            issuedByUserId: user.id,
+            snapshot: {
+              residentName: resident.fullName,
+              room: bed.room.number,
+              bed: bed.label,
+              roomType: bed.room.roomType.name,
+              joiningDate: parsed.joiningDate.toISOString(),
+              lines: breakdown.lines.map((line) => ({
+                description: line.label,
+                amountPkr: line.amountPkr,
+              })),
+              totalPkr: breakdown.totalPkr,
+              receivedPkr,
+              balancePkr,
+              method: parsed.payment.method,
+            },
+          },
+        });
+
+        await recordAudit(
+          {
+            action: "admission.confirmed",
+            entityType: "Admission",
+            entityId: admission.id,
+            hostelId: membership.hostelId,
+            actorUserId: user.id,
+            summary: `Admitted ${resident.fullName} into room ${bed.room.number} bed ${bed.label}`,
+            metadata: {
+              totalPkr: breakdown.totalPkr,
+              receivedPkr,
+              balancePkr,
+              room: bed.room.number,
+              bed: bed.label,
+            },
+            ...requestMeta,
+          },
+          tx,
+        );
+
+        return {
           residentId: resident.id,
           admissionId: admission.id,
+          invoiceId: invoice.id,
           paymentId: payment.id,
-          kind: ReceiptKind.ADMISSION,
-          number: await nextNumber(tx, membership.hostelId, "receipt"),
-          totalReceivedPkr: receivedPkr,
+          receiptId: receipt.id,
+          receiptNumber: receipt.number,
+          totalPkr: breakdown.totalPkr,
+          receivedPkr,
           balancePkr,
-          issuedByUserId: user.id,
-          snapshot: {
-            residentName: resident.fullName,
-            room: bed.room.number,
-            bed: bed.label,
-            roomType: bed.room.roomType.name,
-            joiningDate: parsed.joiningDate.toISOString(),
-            lines: breakdown.lines.map((line) => ({
-              description: line.label,
-              amountPkr: line.amountPkr,
-            })),
-            totalPkr: breakdown.totalPkr,
-            receivedPkr,
-            balancePkr,
-            method: parsed.payment.method,
-          },
-        },
-      });
-
-      await recordAudit(
-        {
-          action: "admission.confirmed",
-          entityType: "Admission",
-          entityId: admission.id,
-          hostelId: membership.hostelId,
-          actorUserId: user.id,
-          summary: `Admitted ${resident.fullName} into room ${bed.room.number} bed ${bed.label}`,
-          metadata: {
-            totalPkr: breakdown.totalPkr,
-            receivedPkr,
-            balancePkr,
-            room: bed.room.number,
-            bed: bed.label,
-          },
-          ...requestMeta,
-        },
-        tx,
-      );
-
-      return {
-        residentId: resident.id,
-        admissionId: admission.id,
-        invoiceId: invoice.id,
-        paymentId: payment.id,
-        receiptId: receipt.id,
-        receiptNumber: receipt.number,
-        totalPkr: breakdown.totalPkr,
-        receivedPkr,
-        balancePkr,
-      };
-    });
+        };
+      },
+      {
+        // Explicit, because the defaults are tight for this transaction. Allocating a
+        // document number takes a row lock on the hostel and holds it until commit, which
+        // serializes admissions for that hostel — fine at a few per day, but under Prisma's
+        // default 5s limit a queued admission could abort with an untranslated P2028.
+        //
+        // Serializing per hostel is the deliberate trade: sequential, gapless document
+        // numbers are worth more to an owner than concurrent admissions they will never
+        // perform.
+        timeout: 20_000,
+        maxWait: 10_000,
+      },
+    );
   } catch (error) {
+    // Contention, not corruption: the caller should simply try again.
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code: unknown }).code === "P2028"
+    ) {
+      throw new AdmissionBusyError();
+    }
+
     // A unique violation here is one of the guarantees doing its job. Translating it
     // gives the manager something actionable instead of a database error.
     //

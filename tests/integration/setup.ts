@@ -26,6 +26,31 @@ import { PrismaClient } from "@/lib/generated/prisma/client";
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 export const hasDatabase = Boolean(TEST_DATABASE_URL);
 
+/**
+ * The suite now exercises real application modules, and those build their own client from
+ * `DATABASE_URL` via lib/server/db.ts. That quietly reopened the hole this file was
+ * written to close: assertions read through `TEST_DATABASE_URL` while the code under test
+ * writes through `DATABASE_URL`, so a developer with `DATABASE_URL` exported to a real
+ * database would have residents, invoices, payments and undeletable audit rows written
+ * into it while the tests looked green.
+ *
+ * They must therefore name the same database. Refusing loudly is the only safe answer:
+ * the failure mode is silent writes to production.
+ */
+if (hasDatabase && process.env.DATABASE_URL) {
+  const normalize = (url: string) => url.trim().replace(/\/+$/, "");
+
+  if (normalize(process.env.DATABASE_URL) !== normalize(TEST_DATABASE_URL as string)) {
+    throw new Error(
+      "Refusing to run the integration suite.\n\n" +
+        "DATABASE_URL and TEST_DATABASE_URL point at different databases. The modules\n" +
+        "under test write through DATABASE_URL, so the suite would create and delete rows\n" +
+        "in whatever that is — while asserting against the other one.\n\n" +
+        "Set both to the same disposable database, or unset DATABASE_URL.",
+    );
+  }
+}
+
 if (!hasDatabase) {
   console.warn(
     "\n" +
