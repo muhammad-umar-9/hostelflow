@@ -273,5 +273,18 @@ export function statusForError(error: unknown): number {
   ) {
     return error.status;
   }
+
+  // Any domain error that declares a status is trusted for it. Listing the three
+  // authorization classes by name meant every error added elsewhere — bed unavailable,
+  // overpayment, missing document — surfaced as a 500 despite carrying the right status,
+  // and the caller lost both the code and the message written for them.
+  //
+  // Only plausible HTTP statuses are honoured, so an unrelated object with a numeric
+  // `status` field cannot dictate the response.
+  if (error instanceof Error && "status" in error) {
+    const status = (error as Error & { status: unknown }).status;
+    if (typeof status === "number" && status >= 400 && status <= 599) return status;
+  }
+
   return 500;
 }

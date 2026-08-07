@@ -418,8 +418,16 @@ async function main() {
         },
       });
 
-      const invoiceCount = await tx.invoice.count({ where: { hostelId: hostel.id } });
-      const number = `INV-${String(invoiceCount + 1).padStart(5, "0")}`;
+      // Takes the number from the hostel's counter, the same source the application uses.
+      // Numbering from count(*) here left `hostel.invoiceSequence` at 0 while invoices
+      // INV-00001 upwards already existed, so the first real admission after a demo seed
+      // generated INV-00001 again and died on the unique index.
+      const [{ value: invoiceSeq }] = await tx.$queryRaw<{ value: number }[]>`
+        UPDATE "hostel" SET "invoiceSequence" = "invoiceSequence" + 1
+        WHERE "id" = ${hostel.id}
+        RETURNING "invoiceSequence" AS "value"
+      `;
+      const number = `INV-${String(invoiceSeq).padStart(5, "0")}`;
 
       const status =
         person.invoice === "PAID"

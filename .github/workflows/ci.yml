@@ -91,10 +91,29 @@ jobs:
           --health-retries 10
 
     env:
-      # A disposable CI database. The suite reads TEST_DATABASE_URL and ignores
-      # DATABASE_URL on purpose, so it can never be pointed at a live database by an
-      # environment variable that happens to be set.
+      # A disposable CI database.
+      #
+      # TEST_DATABASE_URL is what the harness itself reads. DATABASE_URL is what the
+      # application modules under test read, and the two are set to the same database
+      # deliberately — tests/integration/setup.ts refuses to run unless they match, which
+      # is what now stops the suite writing to a database somebody had exported for
+      # another purpose.
       TEST_DATABASE_URL: postgresql://hostelflow:hostelflow_ci_password@localhost:5432/hostelflow_test
+
+      # The modules under test are real application modules: they build the Prisma client
+      # through lib/server/db.ts, which validates the whole server environment. So the
+      # integration job runs as a fully configured application pointed at a throwaway
+      # database, rather than the modules being weakened to need less.
+      #
+      # Every value here is disposable and public by design. MinIO is never contacted by
+      # these tests; its variables exist only to satisfy validation.
+      DATABASE_URL: postgresql://hostelflow:hostelflow_ci_password@localhost:5432/hostelflow_test
+      APP_URL: http://localhost:3000
+      AUTH_SECRET: ci-only-not-a-secret-0123456789abcdefghijklmnop
+      MINIO_ENDPOINT: localhost
+      MINIO_ROOT_USER: ci-not-used
+      MINIO_ROOT_PASSWORD: ci-not-used
+      MINIO_BUCKET_PRIVATE: ci-not-used
 
     steps:
       - uses: actions/checkout@v4
@@ -110,20 +129,14 @@ jobs:
       # including the hand-written append-only triggers.
       - name: Apply migrations
         run: npx prisma migrate deploy
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Verify migrations are in sync with the schema
         run: npx prisma migrate status
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Structural seed is idempotent
         run: |
           npm run db:seed
           npm run db:seed
-        env:
-          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
 
       - name: Integration tests
         run: npm run test:integration

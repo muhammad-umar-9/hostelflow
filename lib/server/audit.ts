@@ -120,3 +120,47 @@ export async function requestContext(): Promise<{
     userAgent: headerList.get("user-agent"),
   };
 }
+
+/**
+ * The same details, but usable outside a request.
+ *
+ * `headers()` throws when there is no request scope, so any audited operation that called
+ * `requestContext()` directly could only ever run inside an HTTP request — not from the
+ * seed, the owner bootstrap, a future scheduled job, or a test. Those callers still need
+ * to write audit rows; they simply have no client address to attach.
+ */
+export async function optionalRequestContext(): Promise<{
+  ipAddress: string | null;
+  userAgent: string | null;
+}> {
+  try {
+    return await requestContext();
+  } catch (error) {
+    // Only "there is no request here" is tolerated.
+    //
+    // A bare catch also swallowed Next's DynamicServerError, which `headers()` throws
+    // during static generation precisely so the framework knows to render that route
+    // dynamically. Absorbing it would leave a Server Component that audits a read
+    // silently prerendered as static — served with somebody else's data baked in. It also
+    // hid genuine header failures behind a shrug.
+    if (isMissingRequestScope(error)) return { ipAddress: null, userAgent: null };
+    throw error;
+  }
+}
+
+/**
+ * True when `headers()` failed because nothing is serving a request — a script, a
+ * scheduled job or a test — rather than because Next is signalling a dynamic bailout.
+ */
+function isMissingRequestScope(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  // Next marks the static-generation bailout with a digest; that one must propagate.
+  const digest = (error as Error & { digest?: unknown }).digest;
+  if (typeof digest === "string" && digest.startsWith("DYNAMIC_SERVER_USAGE")) {
+    return false;
+  }
+  if (error.name === "DynamicServerError") return false;
+
+  return /outside a request scope/i.test(error.message);
+}

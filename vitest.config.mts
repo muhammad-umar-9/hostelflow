@@ -29,7 +29,17 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: { "@": path.resolve(import.meta.dirname) },
+          alias: {
+            "@": path.resolve(import.meta.dirname),
+            // The integration suite runs in Node and imports lib/server/* deliberately.
+            // The real `server-only` package throws on import outside a React Server
+            // Component, which would stop these tests importing the very modules they
+            // exist to exercise. The unit project keeps the real package.
+            "server-only": path.resolve(
+              import.meta.dirname,
+              "tests/stubs/server-only.ts",
+            ),
+          },
         },
         test: {
           name: "integration",
