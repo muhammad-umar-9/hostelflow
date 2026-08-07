@@ -91,9 +91,13 @@ jobs:
           --health-retries 10
 
     env:
-      # A disposable CI database. The suite reads TEST_DATABASE_URL and ignores
-      # DATABASE_URL on purpose, so it can never be pointed at a live database by an
-      # environment variable that happens to be set.
+      # A disposable CI database.
+      #
+      # TEST_DATABASE_URL is what the harness itself reads. DATABASE_URL is what the
+      # application modules under test read, and the two are set to the same database
+      # deliberately — tests/integration/setup.ts refuses to run unless they match, which
+      # is what now stops the suite writing to a database somebody had exported for
+      # another purpose.
       TEST_DATABASE_URL: postgresql://hostelflow:hostelflow_ci_password@localhost:5432/hostelflow_test
 
       # The modules under test are real application modules: they build the Prisma client

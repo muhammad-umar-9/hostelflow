@@ -11,6 +11,16 @@
 
 /** Thrown when a value that must be an integer rupee amount is not one. */
 export class MoneyError extends Error {
+  /**
+   * Bad input, not a server fault.
+   *
+   * Without a status these reached `statusForError` as ordinary errors and became 500s,
+   * so a manager who typed "7500.60" was told something went wrong on the server instead
+   * of being told the amount must be whole rupees — the exact message this class exists
+   * to carry.
+   */
+  readonly status = 400;
+
   constructor(message: string) {
     super(message);
     this.name = "MoneyError";

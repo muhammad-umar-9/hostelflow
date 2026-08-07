@@ -92,12 +92,13 @@ export async function disconnect(): Promise<void> {
   // open keeps the worker's event loop alive after the last assertion — vitest then
   // either hangs or force-terminates, and a force-terminated run is a run whose result
   // nobody should trust.
-  try {
-    const { prisma } = await import("@/lib/server/db");
-    await prisma.$disconnect();
-  } catch {
-    // Never opened by this file, which is fine — nothing to close.
-  }
+  //
+  // `disconnectPrisma()` rather than `prisma.$disconnect()`: the latter goes through the
+  // lazy proxy and would construct a client, and a pool, purely in order to close it.
+  // Errors are not swallowed either — a failing disconnect is precisely the hang this is
+  // here to prevent, so it should be loud.
+  const { disconnectPrisma } = await import("@/lib/server/db");
+  await disconnectPrisma();
 }
 
 /** Unique per test run, so parallel runs and reruns never collide on a slug or a CNIC. */

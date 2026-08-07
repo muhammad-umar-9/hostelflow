@@ -54,6 +54,25 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
 });
 
 /**
+ * Closes the shared client's connection pool, but only if one was ever opened.
+ *
+ * Reaching for `prisma.$disconnect()` goes through the proxy above, which *builds* the
+ * client — so a teardown whose only job is to release connections would open a pool to
+ * close it, and would fail outright wherever the environment is not configured. This asks
+ * the cache directly instead.
+ *
+ * Used by the integration harness. The application itself never calls it: the pool should
+ * live as long as the process.
+ */
+export async function disconnectPrisma(): Promise<void> {
+  const instance = globalForPrisma.hostelflowPrisma;
+  if (!instance) return;
+
+  globalForPrisma.hostelflowPrisma = undefined;
+  await instance.$disconnect();
+}
+
+/**
  * The type of the client handed to a function running inside `prisma.$transaction`.
  * Helpers that must join their caller's transaction — audit writes, ledger entries —
  * accept this so their row commits or rolls back with the operation it describes.

@@ -16,10 +16,14 @@ ADD COLUMN     "receiptSequence" INTEGER NOT NULL DEFAULT 0;
 -- below a number that is already taken, so the next admission reproduces exactly the
 -- collision this backfill exists to prevent. The suffix is read off the end of the
 -- number, so INV-00007 and a hand-entered 2026/00007 both count.
+--
+-- Clamped to the int4 maximum because the target columns are INTEGER: a long hand-entered
+-- number — the very case the line above says is supported — would otherwise raise
+-- "integer out of range" and fail migrate deploy part-way through.
 UPDATE "hostel" h
 SET "invoiceSequence" = COALESCE(
   (
-    SELECT MAX((substring(i."number" FROM '[0-9]+$'))::bigint)
+    SELECT LEAST(MAX((substring(i."number" FROM '[0-9]+$'))::bigint), 2147483647)
     FROM "invoice" i
     WHERE i."hostelId" = h."id"
       AND substring(i."number" FROM '[0-9]+$') IS NOT NULL
@@ -30,7 +34,7 @@ SET "invoiceSequence" = COALESCE(
 UPDATE "hostel" h
 SET "receiptSequence" = COALESCE(
   (
-    SELECT MAX((substring(r."number" FROM '[0-9]+$'))::bigint)
+    SELECT LEAST(MAX((substring(r."number" FROM '[0-9]+$'))::bigint), 2147483647)
     FROM "receipt" r
     WHERE r."hostelId" = h."id"
       AND substring(r."number" FROM '[0-9]+$') IS NOT NULL

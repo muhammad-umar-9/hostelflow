@@ -296,6 +296,20 @@ export async function admitResident(
         // advance. These were being ignored entirely: the calculator accepts them and the
         // allocation order even ranks them, but nothing ever passed them in, so a
         // configured charge simply went uncollected.
+        //
+        // `oneTime` is load-bearing here and deliberately not for the deposit or the
+        // police form. Those two are one-off by virtue of their kind, and an earlier
+        // version that filtered them on the flag meant an owner toggling a checkbox made
+        // the deposit silently disappear from the invoice. OTHER has no such guarantee —
+        // it covers both a one-off admission fee and a recurring extra — so the flag is
+        // the only thing distinguishing them, and it has to be honoured.
+        //
+        // Known gap, deliberately not closed here: an active OTHER charge with
+        // `oneTime` false is billed by nothing at all today, because recurring billing
+        // does not exist yet. It is indistinguishable from a charge whose owner simply
+        // forgot the checkbox. The settings screen should require an explicit choice when
+        // it is built; guessing here would either invent a recurring charge on an
+        // admission invoice or re-create the vanishing-deposit bug.
         const additionalPkr = charges
           .filter((charge) => charge.kind === ChargeKind.OTHER && charge.oneTime)
           .map((charge) => {
@@ -307,6 +321,27 @@ export async function admitResident(
             }
             return { label: charge.label, amountPkr: charge.defaultAmountPkr };
           });
+
+        /**
+         * The charge type that produced a given invoice line.
+         *
+         * Resolving by kind alone was wrong for OTHER, where several charges share the
+         * kind: an "Admission fee" line could end up pointing at the "Mess advance"
+         * charge type, so any later report grouping revenue by charge type would
+         * attribute money to something that was never billed. The singleton kinds are
+         * unambiguous by now — two active rows of one kind is rejected above — so kind is
+         * enough for them, and OTHER is matched on its label as well.
+         */
+        const chargeTypeIdFor = (kind: ChargeKind, label: string) => {
+          if (kind === ChargeKind.OTHER) {
+            return (
+              charges.find(
+                (charge) => charge.kind === ChargeKind.OTHER && charge.label === label,
+              )?.id ?? null
+            );
+          }
+          return charges.find((charge) => charge.kind === kind)?.id ?? null;
+        };
 
         const breakdown = calculateAdmissionCharges({
           monthlyRentPkr: bed.room.roomType.monthlyRentPkr,
@@ -431,9 +466,7 @@ export async function admitResident(
                 kind: line.kind as ChargeKind,
                 description: line.label,
                 amountPkr: line.amountPkr,
-                chargeTypeId:
-                  charges.find((charge) => charge.kind === (line.kind as ChargeKind))
-                    ?.id ?? null,
+                chargeTypeId: chargeTypeIdFor(line.kind as ChargeKind, line.label),
               })),
             },
           },

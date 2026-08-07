@@ -22,6 +22,9 @@ export const CNIC_NORMALIZED_REGEX = /^\d{13}$/;
 export const MOBILE_NORMALIZED_REGEX = /^03\d{9}$/;
 
 export class IdentityError extends Error {
+  /** Bad input, not a server fault — see the note on MoneyError. */
+  readonly status = 400;
+
   constructor(message: string) {
     super(message);
     this.name = "IdentityError";
