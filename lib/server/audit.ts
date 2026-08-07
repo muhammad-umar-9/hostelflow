@@ -120,3 +120,23 @@ export async function requestContext(): Promise<{
     userAgent: headerList.get("user-agent"),
   };
 }
+
+/**
+ * The same details, but usable outside a request.
+ *
+ * `headers()` throws when there is no request scope, so any audited operation that called
+ * `requestContext()` directly could only ever run inside an HTTP request — not from the
+ * seed, the owner bootstrap, a future scheduled job, or a test. Those callers still need
+ * to write audit rows; they simply have no client address to attach.
+ */
+export async function optionalRequestContext(): Promise<{
+  ipAddress: string | null;
+  userAgent: string | null;
+}> {
+  try {
+    return await requestContext();
+  } catch {
+    // No request scope. Not an error condition — just nothing to record.
+    return { ipAddress: null, userAgent: null };
+  }
+}

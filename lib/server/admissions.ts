@@ -18,7 +18,7 @@ import {
 import { calculateAdmissionCharges } from "@/lib/domain/charges";
 import { normalizeCnic, normalizeMobile } from "@/lib/domain/identity";
 import { assertPositivePkr } from "@/lib/domain/money";
-import { recordAudit, requestContext } from "./audit";
+import { optionalRequestContext, recordAudit } from "./audit";
 import { NotFoundError, requirePermission, type AuthContext } from "./authz";
 import { prisma, type TransactionClient } from "./db";
 
@@ -162,7 +162,10 @@ export async function admitResident(
   const guardianCnic = parsed.guardian.cnic ? normalizeCnic(parsed.guardian.cnic) : null;
   assertPositivePkr(parsed.payment.amountPkr, "payment");
 
-  const requestMeta = await requestContext();
+  // optionalRequestContext, not requestContext: this transaction must be callable from
+  // a script, a scheduled job or a test, none of which have an HTTP request scope. The
+  // client address is recorded when there is one and omitted when there is not.
+  const requestMeta = await optionalRequestContext();
 
   try {
     return await prisma.$transaction(async (tx) => {
