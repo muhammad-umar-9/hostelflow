@@ -9,10 +9,25 @@ import { useToast } from "@/components/ui/toast";
 
 const ITEMS = [
   { key: "photo", label: "Your photograph", hint: "A clear face photo", required: true },
-  { key: "cnicFront", label: "CNIC / B-Form front", hint: "All four corners visible", required: true },
-  { key: "cnicBack", label: "CNIC / B-Form back", hint: "Both sides must be readable", required: true },
+  {
+    key: "cnicFront",
+    label: "CNIC / B-Form front",
+    hint: "All four corners visible",
+    required: true,
+  },
+  {
+    key: "cnicBack",
+    label: "CNIC / B-Form back",
+    hint: "Both sides must be readable",
+    required: true,
+  },
   { key: "guardianCnic", label: "Guardian CNIC", hint: "Optional", required: false },
-  { key: "proof", label: "Payment screenshot / student card", hint: "Optional", required: false },
+  {
+    key: "proof",
+    label: "Payment screenshot / student card",
+    hint: "Optional",
+    required: false,
+  },
 ];
 
 /**
@@ -63,7 +78,8 @@ export default function StudentUploadPage() {
           Upload your documents
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-mut">
-          Take clear photos of the documents below. Nothing to install, no password needed.
+          Take clear photos of the documents below. Nothing to install, no password
+          needed.
         </p>
         <p className="mt-3 rounded-xl bg-tint px-3.5 py-3 text-[11.5px] font-bold text-p">
           {doneCount} of 3 required documents uploaded
@@ -95,8 +111,12 @@ export default function StudentUploadPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-bold">{item.label}</p>
                   <p className="mt-0.5 text-[11px] text-mut">
-                    {busy === item.key ? "Uploading ..." : done ? "Uploaded" : "Not uploaded yet"} ·{" "}
-                    {item.hint}
+                    {busy === item.key
+                      ? "Uploading ..."
+                      : done
+                        ? "Uploaded"
+                        : "Not uploaded yet"}{" "}
+                    · {item.hint}
                   </p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => upload(item.key)}>
@@ -108,8 +128,8 @@ export default function StudentUploadPage() {
         </div>
 
         <p className="mt-3.5 text-[11px] leading-relaxed text-mut">
-          Your documents go only to the hostel office and are stored with your resident file.
-          The link expires in 24 hours.
+          Your documents go only to the hostel office and are stored with your resident
+          file. The link expires in 24 hours.
         </p>
       </div>
 

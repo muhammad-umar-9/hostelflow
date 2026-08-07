@@ -19,7 +19,12 @@ export function DemoResetButton() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="w-full">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className="w-full"
+      >
         <RotateCcw className="h-3.5 w-3.5" />
         Reset demo data
       </Button>

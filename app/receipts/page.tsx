@@ -52,7 +52,9 @@ export default function ReceiptsPage() {
                       {receipt.purpose} · {receipt.date}
                     </span>
                   </span>
-                  <span className="text-[13px] font-extrabold">{formatPKR(receipt.total)}</span>
+                  <span className="text-[13px] font-extrabold">
+                    {formatPKR(receipt.total)}
+                  </span>
                 </Link>
               );
             })}

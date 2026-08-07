@@ -1,23 +1,28 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 /**
  * Colours live as CSS variables in styles/globals.css so the theme can be swapped
  * at runtime. This wrapper keeps Tailwind opacity modifiers (bg-p/40) working.
+ *
+ * Tailwind resolves a colour value that is a function at run time, passing the opacity
+ * modifier in, but its `Config` type only models colour leaves as strings. The cast keeps
+ * the documented run-time contract while satisfying the published types; the plain
+ * `var(--x)` fallback (no modifier) is kept so themed colours still render on browsers
+ * without `color-mix()`.
  */
-const withAlpha =
-  (variable: string) =>
-  ({ opacityValue }: { opacityValue?: string }) =>
+const withAlpha = (variable: string): string => {
+  const resolve = ({ opacityValue }: { opacityValue?: string }) =>
     opacityValue === undefined
       ? `var(${variable})`
       : `color-mix(in srgb, var(${variable}) calc(${opacityValue} * 100%), transparent)`;
 
+  return resolve as unknown as string;
+};
+
 const config: Config = {
   darkMode: ["class"],
-  content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}",
-  ],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -61,7 +66,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

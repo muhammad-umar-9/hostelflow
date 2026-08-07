@@ -88,7 +88,9 @@ export function AdmissionWizard() {
 
   if (!data) return null;
 
-  const room = state.roomNo ? data.rooms.find((item) => item.no === state.roomNo) : undefined;
+  const room = state.roomNo
+    ? data.rooms.find((item) => item.no === state.roomNo)
+    : undefined;
   const total = room
     ? room.rent + data.settings.security + data.settings.policeCharge
     : 0;
@@ -100,9 +102,7 @@ export function AdmissionWizard() {
         ...current.payment,
         ...patch,
         amount:
-          patch.amount !== undefined
-            ? patch.amount
-            : current.payment.amount || total,
+          patch.amount !== undefined ? patch.amount : current.payment.amount || total,
       },
     }));
 
@@ -277,11 +277,16 @@ export function AdmissionWizard() {
 
       {step === 7 && room ? (
         <StepReview
-          state={{ ...state, payment: { ...state.payment, amount: state.payment.amount || total } }}
+          state={{
+            ...state,
+            payment: { ...state.payment, amount: state.payment.amount || total },
+          }}
           room={room}
           settings={data.settings}
           onEdit={(target) => setStep(target)}
-          onConsentChange={(value) => setState((current) => ({ ...current, consent: value }))}
+          onConsentChange={(value) =>
+            setState((current) => ({ ...current, consent: value }))
+          }
         />
       ) : null}
 

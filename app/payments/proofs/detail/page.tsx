@@ -68,7 +68,9 @@ function ProofDetailPageContent() {
         <div className="rounded-3xl border border-line bg-white p-4">
           <div className="flex items-baseline justify-between">
             <span className="text-xs font-bold text-mut">AMOUNT CLAIMED</span>
-            <span className="text-xl font-extrabold text-p">{formatPKR(proof.amount)}</span>
+            <span className="text-xl font-extrabold text-p">
+              {formatPKR(proof.amount)}
+            </span>
           </div>
           <div className="my-3.5 h-px bg-line" />
           <dl className="flex flex-col gap-2.5 text-[12.5px]">
@@ -92,7 +94,11 @@ function ProofDetailPageContent() {
       <div className="print-hide fixed inset-x-0 bottom-[72px] z-30 border-t border-line bg-white/97 px-4 py-3 backdrop-blur lg:bottom-0">
         <div className="mx-auto flex max-w-[560px] flex-col gap-2.5">
           <div className="flex gap-2.5">
-            <Button variant="danger" onClick={() => setRejectOpen(true)} disabled={mutating}>
+            <Button
+              variant="danger"
+              onClick={() => setRejectOpen(true)}
+              disabled={mutating}
+            >
               Reject
             </Button>
             <Button
@@ -172,7 +178,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   return (
     <div className="flex justify-between gap-3">
       <dt className="font-semibold text-mut">{label}</dt>
-      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>{value}</dd>
+      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>
+        {value}
+      </dd>
     </div>
   );
 }

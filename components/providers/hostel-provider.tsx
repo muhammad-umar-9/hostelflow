@@ -33,7 +33,11 @@ interface HostelContextValue {
   rejectProof: (proofId: string, reason: string) => Promise<MutationResult>;
   submitProof: (residentId: string) => Promise<MutationResult>;
   sendReminders: (residentIds: string[]) => Promise<MutationResult>;
-  setBedState: (roomNo: string, bedId: string, state: BedState) => Promise<MutationResult>;
+  setBedState: (
+    roomNo: string,
+    bedId: string,
+    state: BedState,
+  ) => Promise<MutationResult>;
   setPoliceStage: (residentId: string, stage: PoliceStage) => Promise<MutationResult>;
   setEnquiryStatus: (enquiryId: string, status: EnquiryStatus) => Promise<MutationResult>;
   addEnquiry: (input: EnquiryInput) => Promise<MutationResult>;
@@ -53,9 +57,14 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = React.useState<string | null>(null);
   const [role, setRoleState] = React.useState<Role>("owner");
 
+  // Demo-only role state. This is presentation state, never authorization.
+  // TODO(backend milestone): delete the role switcher and derive the role from the
+  // authenticated server session and hostel membership.
   React.useEffect(() => {
-    const stored = typeof window === "undefined" ? null : window.localStorage.getItem(ROLE_KEY);
+    const stored =
+      typeof window === "undefined" ? null : window.localStorage.getItem(ROLE_KEY);
     if (stored === "owner" || stored === "manager" || stored === "resident") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-off hydration of the demo role
       setRoleState(stored);
     }
   }, []);
@@ -73,7 +82,10 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // TODO(backend milestone): replace this client-side snapshot fetch with server
+  // components that read only the records the signed-in user is allowed to see.
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load() flips the loading flag before awaiting
     void load();
   }, [load]);
 
@@ -120,7 +132,8 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         toast("Demo data reset");
       },
-      admitResident: (input) => run((current) => hostelRepository.admitResident(current, input)),
+      admitResident: (input) =>
+        run((current) => hostelRepository.admitResident(current, input)),
       recordCashPayment: (residentId, amount) =>
         run((current) => hostelRepository.recordCashPayment(current, residentId, amount)),
       approveProof: (proofId, amount) =>
@@ -137,11 +150,14 @@ export function HostelProvider({ children }: { children: React.ReactNode }) {
         run((current) => hostelRepository.setPoliceStage(current, residentId, stage)),
       setEnquiryStatus: (enquiryId, status) =>
         run((current) => hostelRepository.setEnquiryStatus(current, enquiryId, status)),
-      addEnquiry: (input) => run((current) => hostelRepository.addEnquiry(current, input)),
+      addEnquiry: (input) =>
+        run((current) => hostelRepository.addEnquiry(current, input)),
       completeCheckout: (residentId, input) =>
         run((current) => hostelRepository.completeCheckout(current, residentId, input)),
       addMaintenanceRequest: (residentId, title) =>
-        run((current) => hostelRepository.addMaintenanceRequest(current, residentId, title)),
+        run((current) =>
+          hostelRepository.addMaintenanceRequest(current, residentId, title),
+        ),
       updateSettings: (patch) =>
         run((current) => hostelRepository.updateSettings(current, patch)),
     }),

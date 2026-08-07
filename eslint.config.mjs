@@ -1,0 +1,26 @@
+import coreWebVitals from "eslint-config-next/core-web-vitals";
+import nextTypescript from "eslint-config-next/typescript";
+
+/**
+ * Flat config. `next lint` was removed in Next.js 16, so ESLint runs directly
+ * (`npm run lint`) against this file.
+ *
+ * @type {import("eslint").Linter.Config[]}
+ */
+const config = [
+  {
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "out/**",
+      "build/**",
+      "next-env.d.ts",
+      "playwright-report/**",
+      "test-results/**",
+    ],
+  },
+  ...coreWebVitals,
+  ...nextTypescript,
+];
+
+export default config;

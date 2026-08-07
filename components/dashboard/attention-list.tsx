@@ -47,7 +47,9 @@ export function AttentionList({ stats }: { stats: OccupancyStats }) {
           >
             {item.count}
           </span>
-          <span className="flex-1 text-[13px] font-semibold leading-snug">{item.label}</span>
+          <span className="flex-1 text-[13px] font-semibold leading-snug">
+            {item.label}
+          </span>
           <ChevronRight className="h-4 w-4 text-[#b6bcc6]" />
         </Link>
       ))}

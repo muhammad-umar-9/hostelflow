@@ -39,12 +39,16 @@ export function RentRow({
           Room {resident.room} · Bed {resident.bed} · due {invoice.dueDate}
         </span>
         <span className="mt-0.5 block text-[11px] text-mut">
-          {invoice.received ? formatPKR(invoice.received) + " received" : "Nothing received"}
+          {invoice.received
+            ? formatPKR(invoice.received) + " received"
+            : "Nothing received"}
           {invoice.reminded ? " · Reminder sent" : ""}
         </span>
       </Link>
       <div className="shrink-0 text-right">
-        <p className="text-sm font-extrabold">{formatPKR(invoice.due - invoice.received)}</p>
+        <p className="text-sm font-extrabold">
+          {formatPKR(invoice.due - invoice.received)}
+        </p>
         <p className="text-[10px] font-semibold text-mut">of {formatPKR(invoice.due)}</p>
       </div>
     </div>

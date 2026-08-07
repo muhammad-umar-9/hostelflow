@@ -124,18 +124,28 @@ export function generateHostelData(): HostelData {
         phone:
           index === 0
             ? "0301 2345678"
-            : "03" + (index % 5) + (index % 9) + " " + (1000000 + ((index * 7919) % 8999999)),
+            : "03" +
+              (index % 5) +
+              (index % 9) +
+              " " +
+              (1000000 + ((index * 7919) % 8999999)),
         dob: "1" + (index % 9) + " Mar 200" + ((index % 6) + 1),
         institution: INSTITUTIONS[index % 10],
         occupation: index % 7 === 0 ? "Employee" : "Student",
         address:
-          "House " + (12 + (index % 80)) + ", Street " + (1 + (index % 14)) + ", " +
-          LAHORE_AREAS[index % 8] + ", Lahore",
+          "House " +
+          (12 + (index % 80)) +
+          ", Street " +
+          (1 + (index % 14)) +
+          ", " +
+          LAHORE_AREAS[index % 8] +
+          ", Lahore",
         city: "Lahore",
         guardian: {
           name: FIRST_NAMES[(index * 13) % 40] + " " + LAST_NAMES[(index * 11) % 30],
           relationship: "Father",
-          cnic: "35202-" + (1000000 + ((index * 7717) % 8999999)) + "-" + ((index % 8) + 1),
+          cnic:
+            "35202-" + (1000000 + ((index * 7717) % 8999999)) + "-" + ((index % 8) + 1),
           phone: "030" + (index % 6) + " " + (1000000 + ((index * 5591) % 8999999)),
         },
         emergency: {
@@ -150,8 +160,11 @@ export function generateHostelData(): HostelData {
         joined:
           index === 0
             ? "04 Feb 2026"
-            : (1 + (index % 27) < 10 ? "0" : "") + (1 + (index % 27)) + " " +
-              ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index % 6] + " 2026",
+            : (1 + (index % 27) < 10 ? "0" : "") +
+              (1 + (index % 27)) +
+              " " +
+              ["Jan", "Feb", "Mar", "Apr", "May", "Jun"][index % 6] +
+              " 2026",
         security: 3000,
         police: "verified",
         status: "active",
@@ -226,11 +239,7 @@ export function generateHostelData(): HostelData {
 
   const proofMethods = ["JazzCash", "Easypaisa", "Bank Transfer"] as const;
   const proofRefs = ["JC-4471-8823", "EP-9932-1174", "HBL-77120934"];
-  const proofSenders = [
-    "0345 7781234",
-    "0321 4456789",
-    "PK36 HABB 0012 3456 7890",
-  ];
+  const proofSenders = ["0345 7781234", "0321 4456789", "PK36 HABB 0012 3456 7890"];
   const proofTimes = ["09:42 am", "10:05 am", "11:18 am"];
   const proofs: PaymentProof[] = [1, 2, 3].map((residentIndex, i) => ({
     id: "PP-" + (210 + i),
@@ -303,17 +312,53 @@ export function generateHostelData(): HostelData {
     ],
     notifications: {
       staff: [
-        { title: "3 payment proofs waiting for review", date: "04 Aug 2026, 11:20 am", tone: "warn" },
-        { title: "12 residents have not paid August rent", date: "04 Aug 2026, 09:00 am", tone: "bad" },
-        { title: "6 police forms are pending", date: "03 Aug 2026, 06:10 pm", tone: "warn" },
-        { title: "2 residents are checking out this week", date: "03 Aug 2026, 05:00 pm", tone: "ok" },
+        {
+          title: "3 payment proofs waiting for review",
+          date: "04 Aug 2026, 11:20 am",
+          tone: "warn",
+        },
+        {
+          title: "12 residents have not paid August rent",
+          date: "04 Aug 2026, 09:00 am",
+          tone: "bad",
+        },
+        {
+          title: "6 police forms are pending",
+          date: "03 Aug 2026, 06:10 pm",
+          tone: "warn",
+        },
+        {
+          title: "2 residents are checking out this week",
+          date: "03 Aug 2026, 05:00 pm",
+          tone: "ok",
+        },
       ],
       resident: [
-        { title: "Your August rent is due on 05 Aug.", date: "01 Aug 2026", tone: "warn" },
-        { title: "Payment proof received and under review.", date: "04 Aug 2026", tone: "ok" },
-        { title: "Your July payment has been verified.", date: "03 Jul 2026", tone: "ok" },
-        { title: "A clearer payment screenshot is required.", date: "02 Jul 2026", tone: "bad" },
-        { title: "Your police verification documents are incomplete.", date: "20 Feb 2026", tone: "warn" },
+        {
+          title: "Your August rent is due on 05 Aug.",
+          date: "01 Aug 2026",
+          tone: "warn",
+        },
+        {
+          title: "Payment proof received and under review.",
+          date: "04 Aug 2026",
+          tone: "ok",
+        },
+        {
+          title: "Your July payment has been verified.",
+          date: "03 Jul 2026",
+          tone: "ok",
+        },
+        {
+          title: "A clearer payment screenshot is required.",
+          date: "02 Jul 2026",
+          tone: "bad",
+        },
+        {
+          title: "Your police verification documents are incomplete.",
+          date: "20 Feb 2026",
+          tone: "warn",
+        },
       ],
     },
     settings: {
@@ -331,8 +376,7 @@ export function generateHostelData(): HostelData {
       bank: "HBL — H-K Boys Hostel — PK36 HABB 0012 3456 7890",
       jazzcash: "0301 2345678 (H-K Boys Hostel)",
       easypaisa: "0345 7654321 (H-K Boys Hostel)",
-      receiptFooter:
-        "Security deposit is refundable at checkout after deductions.",
+      receiptFooter: "Security deposit is refundable at checkout after deductions.",
       noticePeriod: "30 days",
       messCharges: false,
       utilityBilling: false,

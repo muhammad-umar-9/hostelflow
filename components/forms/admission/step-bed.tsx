@@ -69,8 +69,13 @@ export function StepBed({
       </div>
       <div className="rounded-2xl border border-line bg-white p-3.5 text-[12.5px] font-bold">
         {selectedRoom && bedId
-          ? "Room " + selectedRoom.no + " · Bed " + bedId + " · " +
-            formatPKR(selectedRoom.rent) + " per month"
+          ? "Room " +
+            selectedRoom.no +
+            " · Bed " +
+            bedId +
+            " · " +
+            formatPKR(selectedRoom.rent) +
+            " per month"
           : "No bed selected yet"}
       </div>
     </div>

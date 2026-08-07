@@ -47,7 +47,9 @@ export default function DashboardPage() {
 
           <section className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between">
-              <h2 className="text-[13px] font-extrabold tracking-tight">Attention required</h2>
+              <h2 className="text-[13px] font-extrabold tracking-tight">
+                Attention required
+              </h2>
               <span className="text-[11px] font-semibold text-mut">{CURRENT_DATE}</span>
             </div>
             <AttentionList stats={getStats(data)} />

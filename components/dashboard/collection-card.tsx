@@ -25,7 +25,9 @@ export function CollectionCard({ stats }: { stats: OccupancyStats }) {
         </div>
         <div>
           <p className="text-[10.5px] font-semibold text-mut">Outstanding</p>
-          <p className="mt-0.5 text-sm font-bold text-bad">{formatPKR(stats.outstanding)}</p>
+          <p className="mt-0.5 text-sm font-bold text-bad">
+            {formatPKR(stats.outstanding)}
+          </p>
         </div>
       </div>
     </Link>

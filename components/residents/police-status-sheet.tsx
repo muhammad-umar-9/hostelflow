@@ -27,7 +27,9 @@ export function PoliceStatusSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent>
-        <SheetTitle className="text-base font-extrabold">Update police verification</SheetTitle>
+        <SheetTitle className="text-base font-extrabold">
+          Update police verification
+        </SheetTitle>
         <SheetDescription className="mt-1 text-xs leading-relaxed text-mut">
           The Rs 300 charge is a hostel charge and does not mean verification is complete.
         </SheetDescription>

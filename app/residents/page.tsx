@@ -42,8 +42,7 @@ function ResidentsPageContent() {
       if (filter === "unpaid") {
         const invoice = getInvoice(data, resident.id);
         return Boolean(
-          invoice &&
-            ["unpaid", "overdue", "partial"].includes(invoice.status),
+          invoice && ["unpaid", "overdue", "partial"].includes(invoice.status),
         );
       }
       if (filter === "police") return resident.police !== "verified";
@@ -52,7 +51,15 @@ function ResidentsPageContent() {
     })
     .filter((resident) =>
       term
-        ? (resident.name + " " + resident.cnic + " " + resident.phone + " " + resident.room)
+        ? (
+            resident.name +
+            " " +
+            resident.cnic +
+            " " +
+            resident.phone +
+            " " +
+            resident.room
+          )
             .toLowerCase()
             .includes(term)
         : true,
@@ -64,7 +71,9 @@ function ResidentsPageContent() {
         <PageHeader
           showBack={false}
           title="Residents"
-          subtitle={residents.length + (filter === "former" ? " former residents" : " residents")}
+          subtitle={
+            residents.length + (filter === "former" ? " former residents" : " residents")
+          }
           action={
             <Button size="sm" asChild>
               <Link href="/admissions/new">+ Add</Link>

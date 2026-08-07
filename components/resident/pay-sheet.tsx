@@ -28,7 +28,11 @@ export function PaySheet({
         <SheetDescription className="mt-1 text-xs leading-relaxed text-mut">
           JazzCash {data.settings.jazzcash} · Easypaisa {data.settings.easypaisa}
         </SheetDescription>
-        <button type="button" className="mt-3 w-full" onClick={() => setAttached(!attached)}>
+        <button
+          type="button"
+          className="mt-3 w-full"
+          onClick={() => setAttached(!attached)}
+        >
           <ScreenshotPlaceholder
             className="h-[150px]"
             label={attached ? "screenshot attached" : "tap to attach screenshot"}

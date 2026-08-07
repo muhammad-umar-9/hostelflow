@@ -15,9 +15,13 @@ const THEME_KEY = "hostelflow.theme";
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = React.useState<Theme>("navy");
 
+  // Hydrating the stored theme after mount keeps the server and client markup identical.
+  // TODO(backend milestone): move the theme to a cookie read on the server so the correct
+  // palette is rendered on the first paint, which also removes this suppression.
   React.useEffect(() => {
     const stored = window.localStorage.getItem(THEME_KEY) as Theme | null;
     if (stored === "navy" || stored === "green" || stored === "teal") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-off hydration of a client-only preference
       setThemeState(stored);
       document.documentElement.dataset.theme = stored;
     }

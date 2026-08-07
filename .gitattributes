@@ -1,0 +1,6 @@
+# The app is built and deployed on Linux; keep LF in the repository and in checkouts so
+# Prettier's `endOfLine: "lf"` check gives the same result on every machine.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

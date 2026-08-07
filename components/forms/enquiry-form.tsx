@@ -7,15 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { enquirySchema, type EnquiryValues } from "@/lib/validations";
+import { enquirySchema, type EnquiryInput, type EnquiryValues } from "@/lib/validations";
 
 export function EnquiryForm({ onDone }: { onDone: () => void }) {
   const { addEnquiry, mutating } = useHostel();
+  // The form holds raw input values; the resolver hands the submit handler the
+  // coerced and validated values (EnquiryValues).
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<EnquiryValues>({
+  } = useForm<EnquiryInput, unknown, EnquiryValues>({
     resolver: zodResolver(enquirySchema),
     defaultValues: {
       name: "",

@@ -75,7 +75,12 @@ export function DocumentUploadList({
                 {item.hint ? " · " + item.hint : ""}
               </p>
             </div>
-            <Button variant="outline" size="sm" type="button" onClick={() => upload(item.key)}>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => upload(item.key)}
+            >
               {done ? "Replace" : "Upload"}
             </Button>
           </div>

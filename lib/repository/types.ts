@@ -70,16 +70,48 @@ export interface HostelRepository {
   getSnapshot(): Promise<HostelData>;
   reset(): Promise<HostelData>;
   admitResident(data: HostelData, input: AdmissionInput): Promise<MutationResult>;
-  recordCashPayment(data: HostelData, residentId: string, amount: number): Promise<MutationResult>;
-  approveProof(data: HostelData, proofId: string, amount: number): Promise<MutationResult>;
+  recordCashPayment(
+    data: HostelData,
+    residentId: string,
+    amount: number,
+  ): Promise<MutationResult>;
+  approveProof(
+    data: HostelData,
+    proofId: string,
+    amount: number,
+  ): Promise<MutationResult>;
   rejectProof(data: HostelData, proofId: string, reason: string): Promise<MutationResult>;
   submitProof(data: HostelData, residentId: string): Promise<MutationResult>;
   sendReminders(data: HostelData, residentIds: string[]): Promise<MutationResult>;
-  setBedState(data: HostelData, roomNo: string, bedId: string, state: BedState): Promise<MutationResult>;
-  setPoliceStage(data: HostelData, residentId: string, stage: PoliceStage): Promise<MutationResult>;
-  setEnquiryStatus(data: HostelData, enquiryId: string, status: EnquiryStatus): Promise<MutationResult>;
+  setBedState(
+    data: HostelData,
+    roomNo: string,
+    bedId: string,
+    state: BedState,
+  ): Promise<MutationResult>;
+  setPoliceStage(
+    data: HostelData,
+    residentId: string,
+    stage: PoliceStage,
+  ): Promise<MutationResult>;
+  setEnquiryStatus(
+    data: HostelData,
+    enquiryId: string,
+    status: EnquiryStatus,
+  ): Promise<MutationResult>;
   addEnquiry(data: HostelData, input: EnquiryInput): Promise<MutationResult>;
-  completeCheckout(data: HostelData, residentId: string, input: CheckoutInput): Promise<MutationResult>;
-  addMaintenanceRequest(data: HostelData, residentId: string, title: string): Promise<MutationResult>;
-  updateSettings(data: HostelData, patch: Partial<HostelSettings>): Promise<MutationResult>;
+  completeCheckout(
+    data: HostelData,
+    residentId: string,
+    input: CheckoutInput,
+  ): Promise<MutationResult>;
+  addMaintenanceRequest(
+    data: HostelData,
+    residentId: string,
+    title: string,
+  ): Promise<MutationResult>;
+  updateSettings(
+    data: HostelData,
+    patch: Partial<HostelSettings>,
+  ): Promise<MutationResult>;
 }

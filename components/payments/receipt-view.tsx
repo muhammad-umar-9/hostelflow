@@ -46,7 +46,10 @@ export function ReceiptView({
           <div className="my-0.5 h-px bg-line" />
           {receipt.rent > 0 ? <Row label="Rent" value={formatPKR(receipt.rent)} /> : null}
           {receipt.security > 0 ? (
-            <Row label="Security deposit (refundable)" value={formatPKR(receipt.security)} />
+            <Row
+              label="Security deposit (refundable)"
+              value={formatPKR(receipt.security)}
+            />
           ) : null}
           {receipt.policeCharge > 0 ? (
             <Row label="Police form charge" value={formatPKR(receipt.policeCharge)} />
@@ -87,7 +90,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   return (
     <div className="flex justify-between gap-3">
       <dt className="font-semibold text-mut">{label}</dt>
-      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>{value}</dd>
+      <dd className={mono ? "text-right font-mono text-[12px]" : "text-right font-bold"}>
+        {value}
+      </dd>
     </div>
   );
 }
