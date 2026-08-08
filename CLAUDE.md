@@ -102,10 +102,13 @@ For every milestone or meaningful unit of work:
 | `ops/<deployment-work>`  | Deployment and infrastructure |
 | `hotfix/<urgent-fix>`    | Urgent production fixes       |
 
-Current milestone branch: **`feature/admission-vertical-slice`** (foundation merged into
-`main` as `2f47a21`).
+Current milestone branch: **`feature/real-authentication`**.
 
-Expected later branches: `feature/payments-and-receipts`,
+Merged so far: foundation (`2f47a21`), admission vertical slice (`7268ea9`), Cloudflare
+tunnel deployment (`3c46c16`).
+
+Expected later branches: `feature/admission-wizard-wiring`,
+`feature/resident-upload-links`, `feature/multi-hostel-tenancy`,
 `feature/payments-and-receipts`, `feature/enquiries-and-bed-holds`,
 `feature/police-verification`, `feature/checkout-and-deposits`,
 `feature/resident-portal`, `feature/pwa-offline-support`, `ops/production-hardening`,

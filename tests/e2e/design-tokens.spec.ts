@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
+import { EMPTY_SESSION } from "./config";
 
 /**
  * The approved palette is defined as CSS variables and mapped into Tailwind by the
@@ -11,7 +12,7 @@ import { expect, test, type Locator } from "@playwright/test";
 // Both checks read the login screen, which redirects a signed-in visitor to their
 // dashboard. The cached owner session would turn a palette assertion into a confusing
 // "element not found".
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ storageState: EMPTY_SESSION });
 
 /** Deep navy `--p: #0f2a47`. */
 const NAVY: [number, number, number] = [15, 42, 71];

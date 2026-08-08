@@ -16,6 +16,7 @@ import { sharedAuthOptions } from "../lib/auth-options";
 
 const email = process.env.E2E_OWNER_EMAIL;
 const password = process.env.E2E_OWNER_PASSWORD;
+const ownerName = process.env.E2E_OWNER_NAME ?? "E2E Owner";
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!email || !password || !databaseUrl) {
@@ -66,7 +67,7 @@ async function main() {
       // Better Auth owns password hashing; creating the row directly would store a
       // password this application could never verify.
       await auth.api.signUpEmail({
-        body: { name: "E2E Owner", email: email!, password: password! },
+        body: { name: ownerName, email: email!, password: password! },
       });
       user = await prisma.user.findUniqueOrThrow({
         where: { email },

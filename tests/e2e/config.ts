@@ -15,6 +15,18 @@ export const E2E_OWNER = {
   name: "E2E Owner",
 } as const;
 
+/**
+ * A deliberately signed-out browser state.
+ *
+ * Written to disk by the setup project when there is no database, and passed to
+ * `test.use()` by every spec that must not carry the cached owner session. Named once so
+ * the three copies cannot drift, and so a reader can see they are the same concept.
+ */
+export const EMPTY_SESSION: { cookies: []; origins: [] } = {
+  cookies: [],
+  origins: [],
+};
+
 /** True when the suite may exercise screens that require a signed-in user. */
 export function canRunAuthenticated(): boolean {
   return e2eDatabaseUrl() !== null;

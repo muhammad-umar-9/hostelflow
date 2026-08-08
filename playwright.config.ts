@@ -34,8 +34,10 @@ const baseURL = `http://127.0.0.1:${PORT}`;
  * resolve, so nothing here can accidentally reach a real service. The one value that
  * matters, DATABASE_URL, is only ever the database the caller explicitly nominated.
  */
+// No `...process.env` spread: Playwright already merges the runner environment into the
+// webServer's, so copying it here only froze a snapshot of every CI secret into a
+// module-level constant that lives for the whole run.
 const serverEnv: Record<string, string> = {
-  ...(process.env as Record<string, string>),
   NODE_ENV: "production",
   APP_URL: baseURL,
   DATABASE_URL:

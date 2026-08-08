@@ -3,6 +3,10 @@ import { IBM_Plex_Mono, Noto_Nastaliq_Urdu, Plus_Jakarta_Sans } from "next/font/
 import { HostelProvider } from "@/components/providers/hostel-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { PATHNAME_HEADER } from "@/middleware";
+import { isPublicPath, loginRedirectPath } from "@/lib/public-routes";
 import { getViewer } from "@/lib/server/viewer";
 import "@/styles/globals.css";
 
@@ -70,6 +74,25 @@ export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
+
+  /*
+   * The real authentication boundary.
+   *
+   * `middleware.ts` only checks that a cookie exists — it runs on the edge runtime and
+   * cannot open a database connection. Its comment used to claim the page would re-check,
+   * but no page did: every screen under app/ is a client component, and requireUser() was
+   * called from exactly two API handlers. So a cookie of any value rendered every
+   * authenticated screen.
+   *
+   * `getViewer()` above resolved the session against the database and rejected a disabled
+   * account, so by this line `signedIn` is a fact rather than the presence of a string.
+   * Every page in the tree is below this layout, which is what makes one check sufficient
+   * — and this stays correct as the screens are converted from mock data to live queries.
+   */
+  const pathname = (await headers()).get(PATHNAME_HEADER) ?? "/";
+  if (!viewer.signedIn && !isPublicPath(pathname)) {
+    redirect(loginRedirectPath(pathname));
+  }
 
   return (
     <html lang="en" data-theme="navy">

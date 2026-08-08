@@ -118,24 +118,31 @@ Either way PostgreSQL and MinIO sit on an internal network, unreachable from the
 
 Also see `docs/security.md`, `docs/backup-and-restore.md` and `docs/operations-runbook.md`.
 
-## Demo roles
+## Signing in
 
-The login screen (`/login`) has a demo role selector: **Owner**, **Manager**, **Resident**.
-The role is also switchable at any time from the sidebar on desktop and from **More** on
-mobile, so a live demo never has to log out. Owner and Manager share the staff navigation;
-Resident gets the smaller companion navigation.
+Real email and password, through Better Auth, against the database. There is no public
+sign-up: the first account is created on the server with `npm run bootstrap:owner`, and
+further accounts are created by an owner.
 
-**This is presentation state, not authorization.** The role lives in `localStorage`, the
-OTP is hard-coded, and no server checks anything. Both are removed when real
-authentication lands.
+The role — owner, manager or resident — is resolved server-side from `HostelMembership` on
+every request and passed down for rendering only. It decides which navigation is drawn; it
+never decides what is permitted. Every action re-checks with `requireOwner()` /
+`requireMembership()` on the server, because the button is drawn on a machine we do not
+control.
 
-`Reset demo data` (sidebar / More) restores the hostel to its starting state.
+Until this milestone the login screen accepted a hard-coded OTP (`4291`), which it filled
+in for the visitor, and offered three DEMO ROLE buttons whose choice was stored in
+`localStorage`. Anyone who could load the page could be the owner. Both are gone, and a
+smoke test fails if either string reappears.
+
+`Reset demo data` (sidebar / More) restores the hostel to its starting state while the
+screens are still mock-driven.
 
 ## Routes
 
 | Route                                     | Screen                                                           |
 | ----------------------------------------- | ---------------------------------------------------------------- |
-| `/login`                                  | Splash, phone + OTP, demo role selector                          |
+| `/login`                                  | Splash, email and password sign-in                               |
 | `/dashboard`                              | Owner / manager dashboard, occupancy, collection, attention list |
 | `/rooms`                                  | Rooms grouped by floor, type / vacancy / floor filters           |
 | `/rooms/detail?no=101`                    | Room detail, bed layout, bed action sheet                        |
@@ -157,7 +164,7 @@ authentication lands.
 | `/resident-portal/requests`               | Maintenance requests                                             |
 | `/resident-portal/profile`                | Resident profile (read-only fields)                              |
 | `/settings`                               | Hostel, charges, payment details, permissions, theme             |
-| `/more`                                   | Secondary navigation, role switch, demo reset                    |
+| `/more`                                   | Secondary navigation, log out, demo reset                        |
 | `/notifications`                          | Role-aware notification list                                     |
 
 Detail screens read their record from a query parameter (`?id=`, `?no=`) rather than a

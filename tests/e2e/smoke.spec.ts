@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { canRunAuthenticated } from "./config";
+import { EMPTY_SESSION, canRunAuthenticated } from "./config";
 
 /**
  * Smoke tests: every main route must return 200, render its own content, and raise no
@@ -121,7 +121,7 @@ test.describe("authenticated screens", () => {
 
 test.describe("signed out", () => {
   // Explicitly no session, whatever the setup project cached.
-  test.use({ storageState: { cookies: [], origins: [] } });
+  test.use({ storageState: EMPTY_SESSION });
 
   test("the login screen renders", async ({ page }) => {
     const response = await page.goto("/login");

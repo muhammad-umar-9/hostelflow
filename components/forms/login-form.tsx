@@ -17,7 +17,7 @@ import { FormError } from "./form-error";
  * The visual design is unchanged on purpose — same navy field, same spacing, same
  * typography. Only the credentials are real.
  */
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string | null }) {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -27,31 +27,43 @@ export function LoginForm() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!email.trim() || !password) {
-      setError("Enter your email and password");
-      return;
-    }
-
     setError(null);
     setSigningIn(true);
 
-    const { error: signInError } = await signIn.email({
-      email: email.trim(),
-      password,
-    });
-
-    if (signInError) {
-      // Deliberately one message for every failure. Distinguishing "no such account" from
-      // "wrong password" tells an attacker which emails are real, and this is a small
-      // deployment where the owner's address is easy to guess.
-      setError("Those details did not match. Check them and try again.");
+    let signInError: { status?: number } | null = null;
+    try {
+      const result = await signIn.email({ email: email.trim(), password });
+      signInError = result.error ?? null;
+    } catch {
+      // better-fetch rejects rather than resolving with `{ error }` when the request never
+      // completes — a dropped connection, or the container restarting mid-deploy. Without
+      // this the handler died here: the spinner ran forever, no message appeared, and the
+      // only way out was reloading the page by hand.
+      setError("Could not reach the server. Check the connection and try again.");
       setSigningIn(false);
       return;
     }
 
-    // Where they land is decided by the server from their membership, not from anything
-    // chosen here. `refresh` makes the layout re-resolve the session before navigating.
-    router.replace("/");
+    if (signInError) {
+      setError(
+        signInError.status === 429
+          ? // Sign-in is limited to 5 attempts in 5 minutes. Reporting this as a wrong
+            // password sends the front desk hunting for a password that is in fact
+            // correct; the anti-enumeration argument covers 401 versus 404, not 429.
+            "Too many attempts. Wait a few minutes and try again."
+          : // One message for every other cause. Distinguishing "no such account" from
+            // "wrong password" tells an attacker which addresses are real, and on a
+            // deployment this small the owner's address is easy to guess.
+            "Those details did not match. Check them and try again.",
+      );
+      setSigningIn(false);
+      return;
+    }
+
+    // `next` was validated on the server as a path on this site; falling back to "/" lets
+    // app/page.tsx resolve the right home from the membership. `refresh` makes the layout
+    // re-resolve the session so the navigation is drawn for the right role.
+    router.replace(next ?? "/");
     router.refresh();
   };
 

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { headers } from "next/headers";
 import {
   hasPermission as hasPermissionForRole,
@@ -69,8 +70,17 @@ export interface AuthContext {
   membership: ActiveMembership;
 }
 
-/** The signed-in user, or null. Never throws, for screens that render both ways. */
-export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
+/**
+ * The signed-in user, or null. Never throws, for screens that render both ways.
+ *
+ * Memoized per request with React's `cache`. The root layout now resolves a viewer on
+ * every render, and `app/page.tsx` and `app/login/page.tsx` each resolve one again in the
+ * same pass, so the session lookup and the disabled-account check ran two and three times
+ * per request on the hottest paths in the application. `cache` is per-request and per
+ * render pass — it is not a cross-request cache, so a session revoked a moment ago is
+ * still noticed on the next request.
+ */
+export const getCurrentUser = cache(async (): Promise<AuthenticatedUser | null> => {
   const session = await auth().api.getSession({ headers: await headers() });
   if (!session?.user) return null;
 
@@ -83,7 +93,7 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   if (!user || user.disabledAt) return null;
 
   return { id: user.id, name: user.name, email: user.email };
-}
+});
 
 /** The signed-in user, or 401. */
 export async function requireUser(): Promise<AuthenticatedUser> {

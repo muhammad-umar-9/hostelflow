@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { MembershipRole } from "@/lib/generated/prisma/enums";
 import type { Role } from "@/lib/types";
 import { getCurrentUser } from "./authz";
@@ -49,7 +51,7 @@ const ROLE_BY_MEMBERSHIP: Record<MembershipRole, Role> = {
  * Never throws: it runs in the root layout, and a layout that throws takes down the login
  * screen too — locking everybody out of the only page that could fix the problem.
  */
-export async function getViewer(): Promise<Viewer> {
+export const getViewer = cache(async (): Promise<Viewer> => {
   const user = await getCurrentUser().catch(tolerate);
   if (!user) return ANONYMOUS;
 
@@ -70,11 +72,16 @@ export async function getViewer(): Promise<Viewer> {
 
   return {
     signedIn: true,
-    role: ROLE_BY_MEMBERSHIP[membership.role],
+    // Falls back to the least privileged role rather than `undefined`. A fourth
+    // MembershipRole added by a later migration, or a generated client lagging the
+    // deployed schema, would otherwise produce `undefined` — and every downstream branch
+    // is written as `role === "resident" ? … : staff`, so an unknown role would have been
+    // shown the staff navigation. An unrecognised role must fail closed.
+    role: ROLE_BY_MEMBERSHIP[membership.role] ?? "resident",
     name: user.name || null,
     hostelId: membership.hostelId,
   };
-}
+});
 
 /** Where a viewer belongs after signing in. */
 export function homePathFor(viewer: Viewer): string {
@@ -83,16 +90,22 @@ export function homePathFor(viewer: Viewer): string {
 }
 
 /**
- * Treats a lookup failure as "nobody is signed in", except for the one error that must
- * never be absorbed.
+ * Treats a lookup failure as "nobody is signed in", loudly, and never absorbs a framework
+ * control-flow signal.
  *
- * Without the rethrow, `headers()` throwing its static-generation bailout inside
- * `getCurrentUser` would be read as "signed out", and Next would happily prerender every
- * authenticated route as static HTML carrying the anonymous navigation. The build reports
- * that as success; the symptom only appears in production, as a site that never notices
- * anyone signing in.
+ * Two things must not happen here. Next's static-generation bailout has to propagate, or
+ * every authenticated route prerenders as static HTML with the anonymous navigation baked
+ * in and the build still reports success. And a genuine infrastructure failure — a
+ * database failover, an exhausted pool — must not pass silently: it downgrades a live
+ * owner to the resident view, sends them to /resident-portal, and tells them their own
+ * checkout needs the owner's approval. That is a support call with no diagnostic trail
+ * unless it is logged, so it is logged.
  */
 function tolerate(error: unknown): null {
   if (isDynamicBailout(error)) throw error;
+  console.error(
+    "[viewer] session or membership lookup failed; rendering as signed out",
+    error,
+  );
   return null;
 }

@@ -1,49 +1,55 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { isPublicPath, loginRedirectPath } from "@/lib/public-routes";
+
+/** The header the root layout reads to learn which path it is rendering. */
+export const PATHNAME_HEADER = "x-hostelflow-pathname";
 
 /**
- * Route protection.
+ * A fast redirect for signed-out visitors — **and nothing more.**
  *
- * **This is a redirect, not a security boundary.** It checks only that a session cookie is
- * present, without validating it — middleware runs on the edge runtime, where opening a
- * database connection per request is not viable. A forged cookie gets past this and then
- * hits `requireUser()` / `requireMembership()` in the page or action, which do the real
- * work: verify the session against the database, reject a disabled account, and resolve
- * the hostel and role.
+ * An earlier version of this file claimed the real check happened downstream, in
+ * `requireUser()` / `requireMembership()` called by the page. That was false: every screen
+ * under `app/` is a client component, and a repository-wide search found those helpers
+ * called only from two API route handlers. So this cookie test — which `getSessionCookie`
+ * performs without verifying a signature or touching the database — was the *only* gate on
+ * every authenticated route, while the comment told the next reader it was the cheap one.
  *
- * So its job is purely to send a signed-out visitor to the login screen instead of letting
- * them watch an authenticated page render and then fail. Deleting this file would not make
- * a single record readable; it would only make the failure uglier.
+ * A comment that overstates a guarantee is worse than no comment: it is an invitation to
+ * skip the real check when these screens are converted to read live data.
  *
- * Anything genuinely public belongs in the matcher exclusions below, not in a check here.
+ * The genuine gate now lives in `app/layout.tsx`, which resolves the session against the
+ * database, rejects a disabled account, and redirects before any page renders. This stays
+ * because it is still worth avoiding a database round trip to tell an anonymous visitor to
+ * sign in — but deleting it would cost latency, not safety.
  */
 export function middleware(request: NextRequest) {
-  const hasSessionCookie = getSessionCookie(request);
-  if (hasSessionCookie) return NextResponse.next();
-
-  const target = new URL("/login", request.url);
-
-  // Preserve where they were heading so sign-in can return them to it. Only a path from
-  // this site is kept: putting a caller-supplied absolute URL here would turn the login
-  // screen into an open redirect, which is a credible phishing aid on a domain residents
-  // are being told to trust.
   const { pathname, search } = request.nextUrl;
-  if (pathname !== "/" && pathname !== "/login") {
-    target.searchParams.set("next", pathname + search);
-  }
 
-  return NextResponse.redirect(target);
+  // Forwarded so the layout knows what it is rendering. Next gives a server component no
+  // access to the request path, and the layout has to distinguish /login from /residents.
+  const headers = new Headers(request.headers);
+  headers.set(PATHNAME_HEADER, pathname);
+
+  // Never trust an inbound copy of the header: a caller could otherwise present
+  // `x-hostelflow-pathname: /login` on a request for /residents and the layout would treat
+  // a protected page as public. `headers.set` above already overwrites it — this only
+  // documents why `set` and not `append`.
+
+  const proceed = () => NextResponse.next({ request: { headers } });
+
+  if (isPublicPath(pathname)) return proceed();
+  if (getSessionCookie(request)) return proceed();
+
+  return NextResponse.redirect(new URL(loginRedirectPath(pathname, search), request.url));
 }
 
 export const config = {
   /*
-   * Everything except:
-   *   api/auth       the sign-in endpoints themselves — protecting these locks everyone out
-   *   login          the page we redirect to
-   *   u/             resident document-upload links, reached from WhatsApp with no account
-   *   _next, static assets, and the PWA files, which are public by nature
+   * Everything except Next's own build output. What is *public* is decided by
+   * `isPublicPath`, not by this pattern: a matcher regex cannot be unit-tested, and the
+   * previous one silently exempted a route that does not exist while redirecting the
+   * container health probe.
    */
-  matcher: [
-    "/((?!api/auth|login|u/|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|pwa-icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
-  ],
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };

@@ -30,7 +30,6 @@ interface HostelContextValue {
    * off it is not — the server action behind it must call requireOwner() for itself.
    */
   role: Role;
-  viewer: Viewer;
   reload: () => Promise<void>;
   resetDemo: () => Promise<void>;
   admitResident: (input: AdmissionInput) => Promise<MutationResult>;
@@ -117,7 +116,6 @@ export function HostelProvider({
       mutating,
       error,
       role,
-      viewer,
       reload: load,
       resetDemo: async () => {
         setLoading(true);
@@ -155,7 +153,10 @@ export function HostelProvider({
       updateSettings: (patch) =>
         run((current) => hostelRepository.updateSettings(current, patch)),
     }),
-    [data, loading, mutating, error, role, viewer, load, run, toast],
+    // `viewer` itself is deliberately absent: it is a fresh object on every RSC payload,
+    // so depending on it rebuilt this value — and re-rendered all 33 consumers — on every
+    // router.refresh(), while `role` is a string that stays referentially stable.
+    [data, loading, mutating, error, role, load, run, toast],
   );
 
   return <HostelContext.Provider value={value}>{children}</HostelContext.Provider>;
