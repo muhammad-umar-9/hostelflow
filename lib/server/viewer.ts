@@ -6,7 +6,7 @@ import { MembershipRole } from "@/lib/generated/prisma/enums";
 import type { Role } from "@/lib/types";
 import { getCurrentUser } from "./authz";
 import { prisma } from "./db";
-import { isDynamicBailout } from "./dynamic";
+import { rethrowFrameworkSignal } from "./dynamic";
 
 /**
  * Who is looking at the screen, for rendering purposes only.
@@ -102,7 +102,7 @@ export function homePathFor(viewer: Viewer): string {
  * unless it is logged, so it is logged.
  */
 function tolerate(error: unknown): null {
-  if (isDynamicBailout(error)) throw error;
+  rethrowFrameworkSignal(error);
   console.error(
     "[viewer] session or membership lookup failed; rendering as signed out",
     error,

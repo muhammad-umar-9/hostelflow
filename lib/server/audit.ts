@@ -2,7 +2,7 @@ import "server-only";
 
 import { headers } from "next/headers";
 import { redact, redactText } from "@/lib/domain/redaction";
-import { isDynamicBailout } from "./dynamic";
+import { rethrowFrameworkSignal } from "./dynamic";
 import { serverEnv } from "./env";
 import type { DbClient } from "./db";
 import { prisma } from "./db";
@@ -194,8 +194,8 @@ export async function optionalRequestContext(): Promise<{
 function isMissingRequestScope(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
-  // The static-generation bailout must propagate, never be read as "no request here".
-  if (isDynamicBailout(error)) return false;
+  // Any framework control-flow signal must propagate, never be read as "no request here".
+  rethrowFrameworkSignal(error);
 
   return /outside a request scope/i.test(error.message);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { SignOutButton } from "@/components/layout/sign-out-button";
 import { AppShell } from "@/components/layout/app-shell";
 import { LoadingScreen } from "@/components/layout/loading-screen";
 import { PageHeader } from "@/components/layout/page-header";
@@ -64,6 +65,17 @@ export default function ResidentProfilePage() {
           >
             Room, rent and deposit — managed by the hostel
           </Button>
+
+          {/*
+            The resident's only way out on a phone.
+
+            RESIDENT_NAV has no "More" entry, the sidebar carrying the staff sign-out is
+            `hidden … lg:flex`, and /login now redirects a signed-in visitor away — so
+            until this was added, a resident who signed in on a shared or borrowed handset
+            stayed signed in permanently, on the device class this application is built
+            for first.
+          */}
+          <SignOutButton className="mt-2" />
         </div>
       </div>
     </AppShell>

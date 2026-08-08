@@ -138,6 +138,24 @@ smoke test fails if either string reappears.
 `Reset demo data` (sidebar / More) restores the hostel to its starting state while the
 screens are still mock-driven.
 
+## End-to-end tests
+
+`npm run test:e2e` builds the app, starts it, and runs Playwright against the production
+build. The authenticated screens need a database to sign in to:
+
+```bash
+E2E_DATABASE_URL=postgresql://user:pass@host:5432/hostelflow_e2e npm run test:e2e
+```
+
+The suite **migrates, seeds and writes to that database**, so it reads `E2E_DATABASE_URL`
+and deliberately ignores `DATABASE_URL` — the same rule the integration suite follows, for
+the same reason. `scripts/e2e-owner.ts` additionally refuses any URL whose database name
+does not contain `test` or `e2e` as a word.
+
+Without the variable the public checks still run and the authenticated ones **skip loudly**
+rather than reporting as passed. Under CI a missing variable is a hard failure, because a
+skipped suite and a passing suite look identical in the summary line.
+
 ## Routes
 
 | Route                                     | Screen                                                           |
