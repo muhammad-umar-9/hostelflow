@@ -27,10 +27,17 @@ if (!email || !password || !databaseUrl) {
 
 // A test fixture must never be able to touch a live hostel. The suite's database is named
 // by the harness and always carries a test marker; refuse anything else outright.
-if (!/_test\b|_e2e\b|hostelflow_test/i.test(databaseUrl)) {
+//
+// The marker must be matched against the database *name* alone. Testing the whole
+// connection string let a password, hostname or query string carrying one of these tokens
+// vouch for a URL whose path is `/production` — the exact copy-paste that grafts the
+// committed test owner onto a real hostel. This script runs in Node and can parse the URL,
+// so it does.
+const databaseName = new URL(databaseUrl).pathname.replace(/^\//, "");
+if (!/_test\b|_e2e\b|hostelflow_test/i.test(databaseName)) {
   throw new Error(
     "Refusing to run: DATABASE_URL does not name a test database. " +
-      "Expected the name to contain `_test` or `_e2e`.",
+      "Expected the database name to contain `_test` or `_e2e`.",
   );
 }
 
