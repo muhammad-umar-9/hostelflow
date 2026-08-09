@@ -28,6 +28,16 @@
  */
 export const PATHNAME_HEADER = "x-hostelflow-pathname";
 
+/**
+ * The companion header carrying the request's query string.
+ *
+ * A layout cannot reach `searchParams` (only pages can) and `headers()` does not expose the
+ * request URL, so without this the layout's own login redirect drops `?id=` and deposits a
+ * re-authenticated user on a detail screen with no record to show. The middleware redirect
+ * preserves it via `loginRedirectPath(pathname, search)`; the layout needs the same input.
+ */
+export const SEARCH_HEADER = "x-hostelflow-search";
+
 /** Prefixes served without a session. A path matches if it equals one or starts with it + "/". */
 export const PUBLIC_PREFIXES = [
   // The sign-in endpoints themselves. Protecting these locks everybody out.
@@ -69,7 +79,11 @@ const STATIC_EXTENSION = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|txt|xml|json
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_FILES.includes(pathname as (typeof PUBLIC_FILES)[number])) return true;
   if (pathname.startsWith("/_next/") || pathname.startsWith("/.well-known/")) return true;
-  if (STATIC_EXTENSION.test(pathname)) return true;
+  // Scoped away from `/api/`: the extension test exists to wave through files in `public/`,
+  // but `/api/documents/abc.json` ends in `.json` too, and matching it here would return an
+  // API route as public *before* the default-deny below is ever reached — handing the next
+  // handler author a false guarantee. An API path is never a static asset.
+  if (!isApiPath(pathname) && STATIC_EXTENSION.test(pathname)) return true;
 
   return PUBLIC_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import {
   PATHNAME_HEADER,
+  SEARCH_HEADER,
   isApiPath,
   isPublicPath,
   loginRedirectPath,
@@ -32,10 +33,12 @@ export function middleware(request: NextRequest) {
   // access to the request path, and the layout has to distinguish /login from /residents.
   const headers = new Headers(request.headers);
   headers.set(PATHNAME_HEADER, pathname);
+  headers.set(SEARCH_HEADER, search);
 
-  // Never trust an inbound copy of the header: a caller could otherwise present
+  // Never trust an inbound copy of either header: a caller could otherwise present
   // `x-hostelflow-pathname: /login` on a request for /residents and the layout would treat
-  // a protected page as public. `headers.set` above already overwrites it — this only
+  // a protected page as public, or spoof `x-hostelflow-search` to steer where the layout's
+  // login redirect deposits users. `headers.set` above overwrites both — this only
   // documents why `set` and not `append`.
 
   const proceed = () => NextResponse.next({ request: { headers } });

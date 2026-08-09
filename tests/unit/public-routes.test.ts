@@ -32,6 +32,12 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/uploads")).toBe(false);
     expect(isPublicPath("/api/documents/abc123")).toBe(false);
     expect(isPublicPath("/api/anything-added-tomorrow")).toBe(false);
+    // A static-file extension does not launder an API route into a public one. The
+    // extension test is scoped away from `/api/`, so appending `.json` (or any of the
+    // eleven other extensions) cannot bypass default-deny.
+    expect(isPublicPath("/api/documents/abc.json")).toBe(false);
+    expect(isPublicPath("/api/uploads.xml")).toBe(false);
+    expect(isPublicPath("/api/anything.png")).toBe(false);
   });
 
   it("recognises API paths so they are refused rather than redirected", () => {

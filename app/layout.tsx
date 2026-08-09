@@ -5,7 +5,12 @@ import { ThemeProvider } from "@/components/providers/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { PATHNAME_HEADER, isPublicPath, loginRedirectPath } from "@/lib/public-routes";
+import {
+  PATHNAME_HEADER,
+  SEARCH_HEADER,
+  isPublicPath,
+  loginRedirectPath,
+} from "@/lib/public-routes";
 import { getViewer } from "@/lib/server/viewer";
 import "@/styles/globals.css";
 
@@ -101,7 +106,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
    * the screens become server components that authorize where they read — which is the
    * real answer, and the next branch's job.
    */
-  const pathname = (await headers()).get(PATHNAME_HEADER);
+  const requestHeaders = await headers();
+  const pathname = requestHeaders.get(PATHNAME_HEADER);
+  const search = requestHeaders.get(SEARCH_HEADER) ?? "";
 
   if (pathname === null) {
     // Middleware did not run. Defaulting to "/" here produced an unbreakable loop: "/" is
@@ -116,7 +123,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         "so the route gate was skipped. Check the middleware matcher and the deployment.",
     );
   } else if (!viewer.signedIn && !isPublicPath(pathname)) {
-    redirect(loginRedirectPath(pathname));
+    // `search` is forwarded alongside the pathname so a revoked-session redirect returns the
+    // user to the exact record they were reading — `middleware.ts` preserves it the same way.
+    redirect(loginRedirectPath(pathname, search));
   }
 
   return (
