@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
-import { isPublicPath, loginRedirectPath } from "@/lib/public-routes";
-
-/** The header the root layout reads to learn which path it is rendering. */
-export const PATHNAME_HEADER = "x-hostelflow-pathname";
+import {
+  PATHNAME_HEADER,
+  isApiPath,
+  isPublicPath,
+  loginRedirectPath,
+} from "@/lib/public-routes";
 
 /**
  * A fast redirect for signed-out visitors — **and nothing more.**
@@ -40,6 +42,13 @@ export function middleware(request: NextRequest) {
 
   if (isPublicPath(pathname)) return proceed();
   if (getSessionCookie(request)) return proceed();
+
+  // An API caller gets a status code, not a page of markup. Redirecting fetch() to the
+  // login screen answers 200 with HTML, which a client parses as success — and it is what
+  // made the container health probe report healthy while the database was down.
+  if (isApiPath(pathname)) {
+    return NextResponse.json({ error: "Sign in to continue" }, { status: 401 });
+  }
 
   return NextResponse.redirect(new URL(loginRedirectPath(pathname, search), request.url));
 }

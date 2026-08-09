@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isPublicPath, loginRedirectPath, safeNextPath } from "@/lib/public-routes";
+import {
+  isApiPath,
+  isPublicPath,
+  loginRedirectPath,
+  safeNextPath,
+} from "@/lib/public-routes";
 
 /**
  * The public/private split used to be a negative lookahead inside the middleware matcher,
@@ -18,11 +23,23 @@ describe("isPublicPath", () => {
     expect(isPublicPath("/api/auth/sign-in/email")).toBe(true);
   });
 
-  it("lets every other API route through, because they authorize themselves", () => {
-    // Redirecting an API request to an HTML login page is worse than refusing it: the
-    // caller gets 200 and a page of markup. These call requireMembership() directly.
-    expect(isPublicPath("/api/uploads")).toBe(true);
-    expect(isPublicPath("/api/documents/abc123")).toBe(true);
+  it("does NOT make every API route public", () => {
+    // The first version listed a blanket `/api`, defended by a comment saying each
+    // handler authorizes itself. True of the two that existed — and it made every future
+    // handler unauthenticated the moment it was created. Route handlers never render the
+    // root layout, so middleware is the only layer that can set this default, and it is
+    // now closed. The two existing handlers still call requireMembership() themselves.
+    expect(isPublicPath("/api/uploads")).toBe(false);
+    expect(isPublicPath("/api/documents/abc123")).toBe(false);
+    expect(isPublicPath("/api/anything-added-tomorrow")).toBe(false);
+  });
+
+  it("recognises API paths so they are refused rather than redirected", () => {
+    // A fetch() redirected to the login screen receives 200 and a page of markup, which a
+    // client reads as success. That is precisely how the health probe reported healthy
+    // with the database down.
+    expect(isApiPath("/api/uploads")).toBe(true);
+    expect(isApiPath("/apidocs")).toBe(false);
   });
 
   it("lets a resident reach the document upload page with no account", () => {

@@ -18,42 +18,57 @@
  * gate, with a unit test asserting the paths that must and must not be public.
  */
 
+/**
+ * The header middleware uses to tell the root layout which path it is rendering.
+ *
+ * Lives here rather than in `middleware.ts` because both sides already import this module,
+ * and `app/layout.tsx` importing from the middleware pulled `next/server` and
+ * `better-auth/cookies` into the RSC module graph — the application root depending on its
+ * own edge middleware.
+ */
+export const PATHNAME_HEADER = "x-hostelflow-pathname";
+
 /** Prefixes served without a session. A path matches if it equals one or starts with it + "/". */
 export const PUBLIC_PREFIXES = [
   // The sign-in endpoints themselves. Protecting these locks everybody out.
   "/api/auth",
-  // Every other API route authorizes itself — see the requireMembership() calls in
-  // app/api/uploads and app/api/documents. Redirecting an API request to an HTML login
-  // page is worse than refusing it: the caller receives 200 and a page of markup.
-  "/api",
+  // The container probe, which carries no session by design.
+  "/api/health",
   "/login",
   // Opened from a WhatsApp link by a resident who has no account and never will.
   "/admissions/upload",
 ] as const;
 
-/** Files served from `public/` or emitted by Next, which carry no session by nature. */
-const PUBLIC_FILES = [
-  "/favicon.ico",
-  "/manifest.webmanifest",
-  "/robots.txt",
-  "/sitemap.xml",
-  "/sw.js",
-] as const;
+/**
+ * API routes are default-DENY, and this is the reason.
+ *
+ * The first version listed a blanket `/api` as public, defended by a comment saying every
+ * handler authorizes itself. That was true of the two handlers that existed — and it made
+ * the next one unauthenticated the moment it was created, with nothing in lint, types or
+ * the test suite noticing. Route handlers never render `app/layout.tsx`, so the gate that
+ * covers every screen does not cover them; middleware is the only layer that runs for
+ * both, which makes it the only place the default can be set.
+ *
+ * `feature/admission-wizard-wiring` and `feature/payments-and-receipts` are the branches
+ * that will add handlers writing bed allocations and payments. They now start closed.
+ */
+export function isApiPath(pathname: string): boolean {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
 
-const PUBLIC_FILE_PREFIXES = [
-  "/_next/",
-  "/icons/",
-  "/images/",
-  "/pwa-icons/",
-  "/.well-known/",
-];
+/**
+ * Files with no extension the regex below can recognise. Everything else in `public/` is
+ * covered by `STATIC_EXTENSION`; listing it here as well was three mechanisms doing one
+ * job, and the redundancy hid that the regex alone decides most of this.
+ */
+const PUBLIC_FILES = ["/manifest.webmanifest", "/sw.js"] as const;
 
 const STATIC_EXTENSION = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|txt|xml|json|map)$/i;
 
 /** True when a path may be served to somebody with no session. */
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_FILES.includes(pathname as (typeof PUBLIC_FILES)[number])) return true;
-  if (PUBLIC_FILE_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
+  if (pathname.startsWith("/_next/") || pathname.startsWith("/.well-known/")) return true;
   if (STATIC_EXTENSION.test(pathname)) return true;
 
   return PUBLIC_PREFIXES.some(

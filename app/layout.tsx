@@ -5,8 +5,7 @@ import { ThemeProvider } from "@/components/providers/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { PATHNAME_HEADER } from "@/middleware";
-import { isPublicPath, loginRedirectPath } from "@/lib/public-routes";
+import { PATHNAME_HEADER, isPublicPath, loginRedirectPath } from "@/lib/public-routes";
 import { getViewer } from "@/lib/server/viewer";
 import "@/styles/globals.css";
 
@@ -86,11 +85,37 @@ export default async function RootLayout({ children }: { children: React.ReactNo
    *
    * `getViewer()` above resolved the session against the database and rejected a disabled
    * account, so by this line `signedIn` is a fact rather than the presence of a string.
-   * Every page in the tree is below this layout, which is what makes one check sufficient
-   * — and this stays correct as the screens are converted from mock data to live queries.
+   *
+   * Two limits, stated because the previous version of this comment claimed more than it
+   * delivered and that is the bug this milestone keeps repeating:
+   *
+   *   1. **It does not re-run on a soft navigation.** Next reuses a cached layout and
+   *      fetches only the segments below it, so a session revoked mid-session is noticed
+   *      on the next hard load, not the next click. Middleware still runs for every
+   *      navigation, so a *deleted* cookie is caught immediately; a *revoked* one with a
+   *      live cookie is not.
+   *   2. **It does not cover route handlers.** Nothing under `app/api` renders a layout.
+   *      Those are gated by middleware's default-deny plus their own requireMembership().
+   *
+   * Neither is load-bearing while every screen reads mock data. Both close properly when
+   * the screens become server components that authorize where they read — which is the
+   * real answer, and the next branch's job.
    */
-  const pathname = (await headers()).get(PATHNAME_HEADER) ?? "/";
-  if (!viewer.signedIn && !isPublicPath(pathname)) {
+  const pathname = (await headers()).get(PATHNAME_HEADER);
+
+  if (pathname === null) {
+    // Middleware did not run. Defaulting to "/" here produced an unbreakable loop: "/" is
+    // not public, so this redirects to /login, which renders through this same layout,
+    // still without the header, and redirects again — ERR_TOO_MANY_REDIRECTS on the one
+    // page that could fix the problem. There is no safe default: "/" locks everyone out,
+    // "/login" serves protected pages. So it is reported rather than guessed, and the
+    // request proceeds — middleware not running is a deployment fault, and every page will
+    // carry its own requireMembership() once the screens read live data.
+    console.error(
+      `[layout] ${PATHNAME_HEADER} is absent — middleware is not running for this request, ` +
+        "so the route gate was skipped. Check the middleware matcher and the deployment.",
+    );
+  } else if (!viewer.signedIn && !isPublicPath(pathname)) {
     redirect(loginRedirectPath(pathname));
   }
 

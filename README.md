@@ -125,10 +125,16 @@ sign-up: the first account is created on the server with `npm run bootstrap:owne
 further accounts are created by an owner.
 
 The role — owner, manager or resident — is resolved server-side from `HostelMembership` on
-every request and passed down for rendering only. It decides which navigation is drawn; it
-never decides what is permitted. Every action re-checks with `requireOwner()` /
-`requireMembership()` on the server, because the button is drawn on a machine we do not
-control.
+every request and passed down for rendering only. It decides which navigation is drawn.
+
+**It does not yet decide what is permitted, because nothing writes to the server yet.**
+Every mutation still runs through the in-browser mock repository, so the owner-only rules
+in the checkout wizard are client-side checks with no server counterpart — `requireOwner()`
+exists in `lib/server/authz.ts` and is currently called by nothing. That is not a hole in a
+live system (there is no live data to reach) but it is the single most important thing to
+get right in `feature/admission-wizard-wiring`: every server action added there must call
+`requireOwner()` / `requireMembership()` for itself, because the button is drawn on a
+machine we do not control.
 
 Until this milestone the login screen accepted a hard-coded OTP (`4291`), which it filled
 in for the visitor, and offered three DEMO ROLE buttons whose choice was stored in

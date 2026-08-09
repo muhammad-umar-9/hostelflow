@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -47,20 +48,27 @@ export function SignOutButton({ className }: { className?: string }) {
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <button
-        type="button"
+      {/*
+        The shared Button, not a hand-rolled one. The first version copied the cva output
+        and drifted on every measurement — 46px against size="sm"'s 38px, text-[12.5px]
+        against text-xs — while sitting in the same card as DemoResetButton, which does
+        call Button. Two buttons in one container at two different heights.
+      */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
         onClick={handleSignOut}
         disabled={pending}
-        className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-[12.5px] font-bold text-mut transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p)] disabled:pointer-events-none disabled:opacity-60"
       >
         <LogOut className="h-4 w-4" />
         {pending ? "Signing out…" : "Log out"}
-      </button>
+      </Button>
       {failed ? (
-        <p
-          role="alert"
-          className="text-[11px] font-semibold text-[var(--danger,#b42318)]"
-        >
+        // `text-bad`, the approved token. The first version used `text-[var(--danger,…)]`
+        // and --danger is defined nowhere, so it always rendered the hardcoded fallback —
+        // an off-palette red, on the exact thing design-tokens.spec.ts exists to police.
+        <p role="alert" className="text-[11px] font-semibold text-bad">
           Could not sign out — you are still signed in. Try again.
         </p>
       ) : null}
