@@ -103,8 +103,12 @@ export function homePathFor(viewer: Viewer): string {
  */
 function tolerate(error: unknown): null {
   rethrowFrameworkSignal(error);
+  // "signed out" would be wrong on the membership path: returning null there keeps the user
+  // signed in and downgrades them to resident navigation, not to the anonymous view. The
+  // wording covers both callers so an operator grepping the logs during that support call
+  // finds the trail this line exists to leave.
   console.error(
-    "[viewer] session or membership lookup failed; rendering as signed out",
+    "[viewer] session or membership lookup failed; rendering with least-privilege navigation",
     error,
   );
   return null;
