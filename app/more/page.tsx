@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
-import { RoleSwitcher } from "@/components/layout/role-switcher";
+import { SignOutButton } from "@/components/layout/sign-out-button";
 import { DemoResetButton } from "@/components/layout/demo-reset-button";
 
 const ITEMS = [
@@ -25,11 +25,6 @@ const ITEMS = [
     href: "/settings",
     title: "Settings",
     description: "Hostel, rooms, rent and payments",
-  },
-  {
-    href: "/login",
-    title: "Switch role / log out",
-    description: "Back to the demo login",
   },
 ];
 
@@ -56,7 +51,7 @@ export default function MorePage() {
           ))}
         </div>
         <div className="flex flex-col gap-3 rounded-2xl border border-line bg-white p-4">
-          <RoleSwitcher />
+          <SignOutButton />
           <DemoResetButton />
         </div>
       </div>

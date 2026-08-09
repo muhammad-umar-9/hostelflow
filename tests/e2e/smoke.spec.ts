@@ -1,10 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
+import { EMPTY_SESSION, canRunAuthenticated } from "./config";
 
 /**
- * Stabilization smoke tests: every main route of the existing frontend must return 200,
- * render its own content, and raise no uncaught client exception. These guard the
- * dependency upgrade and the Tailwind configuration fix; they say nothing about
- * authorization or persistence, which arrive with the backend milestones.
+ * Smoke tests: every main route must return 200, render its own content, and raise no
+ * uncaught client exception.
+ *
+ * These now run **as a signed-in owner**, because the screens they visit are no longer
+ * reachable without one. The session is established once by `auth.setup.ts`, driving the
+ * real login form against a real database, which means the suite finally proves that
+ * signing in works — something nothing checked while the login was a hard-coded OTP.
+ *
+ * Without E2E_DATABASE_URL there is no database to sign in to, so the authenticated
+ * screens **skip**. They are never reported as passing: a suite that quietly tests nothing
+ * is worse than one that admits it tested nothing.
  */
 
 interface Route {
@@ -16,7 +24,6 @@ interface Route {
 }
 
 const STAFF_ROUTES: Route[] = [
-  { path: "/login", heading: /^HostelFlow$/ },
   { path: "/dashboard", heading: /H-K Boys Hostel/i },
   { path: "/rooms", heading: /Rooms and beds/i },
   { path: "/rooms/detail?no=101", heading: /Room 101/i },
@@ -72,34 +79,85 @@ function collectPageErrors(page: Page): string[] {
   return errors;
 }
 
-for (const route of [...STAFF_ROUTES, ...DETAIL_ROUTES, ...RESIDENT_ROUTES]) {
-  test(`${route.path} renders`, async ({ page }) => {
-    const errors = collectPageErrors(page);
+test.describe("authenticated screens", () => {
+  test.skip(
+    !canRunAuthenticated(),
+    "E2E_DATABASE_URL is not set: these screens require a signed-in owner and were NOT tested.",
+  );
 
-    const response = await page.goto(route.path);
-    expect(response?.status(), `${route.path} should return 200`).toBe(200);
+  for (const route of [...STAFF_ROUTES, ...DETAIL_ROUTES, ...RESIDENT_ROUTES]) {
+    test(`${route.path} renders`, async ({ page }) => {
+      const errors = collectPageErrors(page);
 
-    if (route.heading) {
-      await expect(page.locator("h1").first()).toHaveText(route.heading, {
-        timeout: 15_000,
-      });
-    } else if (route.text) {
-      await expect(page.locator("body")).toContainText(route.text, { timeout: 15_000 });
-    }
+      const response = await page.goto(route.path);
+      expect(response?.status(), `${route.path} should return 200`).toBe(200);
 
-    expect(errors, `${route.path} raised client exceptions`).toEqual([]);
+      // A signed-in visit must never be bounced to the login screen. This catches a
+      // middleware matcher that over-reaches, which would otherwise show up as a
+      // confusing heading mismatch rather than as the redirect it actually is.
+      expect(
+        new URL(page.url()).pathname,
+        `${route.path} redirected to sign-in`,
+      ).not.toBe("/login");
+
+      if (route.heading) {
+        await expect(page.locator("h1").first()).toHaveText(route.heading, {
+          timeout: 15_000,
+        });
+      } else if (route.text) {
+        await expect(page.locator("body")).toContainText(route.text, { timeout: 15_000 });
+      }
+
+      expect(errors, `${route.path} raised client exceptions`).toEqual([]);
+    });
+  }
+
+  test("an unknown route renders the not-found screen", async ({ page }) => {
+    const response = await page.goto("/this-route-does-not-exist");
+    expect(response?.status()).toBe(404);
+    await expect(page.locator("body")).toContainText(/not found|404/i);
   });
-}
-
-test("/ redirects to the login screen", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
 });
 
-test("an unknown route renders the not-found screen", async ({ page }) => {
-  const response = await page.goto("/this-route-does-not-exist");
-  expect(response?.status()).toBe(404);
-  await expect(page.locator("body")).toContainText(/not found|404/i);
+test.describe("signed out", () => {
+  // Explicitly no session, whatever the setup project cached.
+  test.use({ storageState: EMPTY_SESSION });
+
+  test("the login screen renders", async ({ page }) => {
+    const response = await page.goto("/login");
+    expect(response?.status()).toBe(200);
+    await expect(page.locator("h1").first()).toHaveText(/^HostelFlow$/);
+    await expect(page.getByLabel("EMAIL")).toBeVisible();
+    await expect(page.getByLabel("PASSWORD")).toBeVisible();
+  });
+
+  test("the sign-in screen offers no way to pick a role", async ({ page }) => {
+    await page.goto("/login");
+    // The build this replaced filled in the OTP 4291 and let anyone choose to be the
+    // owner. If either ever comes back, it comes back here first.
+    await expect(page.locator("body")).not.toContainText(/DEMO ROLE|Send OTP/i);
+    await expect(page.locator("body")).not.toContainText("4291");
+  });
+
+  test("/ redirects to the login screen", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("a protected route redirects to sign-in and keeps the destination", async ({
+    page,
+  }) => {
+    await page.goto("/residents");
+    await expect(page).toHaveURL(/\/login\?next=%2Fresidents$/);
+  });
+
+  test("an unknown route does not reveal itself to a stranger", async ({ page }) => {
+    // Deliberately a redirect rather than a 404. Answering 404 here while answering a
+    // redirect for /residents would let anyone map which routes exist by watching the
+    // difference — free reconnaissance on a path that needs no account to probe.
+    await page.goto("/this-route-does-not-exist");
+    await expect(page).toHaveURL(/\/login\?next=/);
+  });
 });
 
 test("the manifest is served as a web app manifest", async ({ request }) => {

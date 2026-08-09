@@ -21,20 +21,20 @@ All stabilization work is on `foundation/backend-integration`.
 
 ## 2. Findings from the handoff audit, and their status
 
-| #   | Finding                                                                     | Status                                                         |
-| --- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| 1   | Real App Router frontend with a useful repository abstraction               | Confirmed; preserved                                           |
-| 2   | Next.js 15.1.6 is affected by published advisories                          | **Fixed** — Next 16.3.0, React 19.2.8, lockfile committed      |
-| 3   | `npm run typecheck` fails in `tailwind.config.ts` (`withAlpha()`)           | **Fixed** — see §4                                             |
-| 4   | `npm run build` fails during type checking for the same reason              | **Fixed** — production build passes                            |
-| 5   | Lint script needs migration after the upgrade                               | **Fixed** — ESLint flat config, `next lint` removed in Next 16 |
-| 6   | README claims no component imports mock data; 15 files do                   | **Documented, not yet fixed** — see §6                         |
-| 7   | `HostelProvider` keeps the role in `localStorage` (demo UI state, not auth) | **Documented, not yet fixed** — see §6                         |
-| 8   | Login/OTP is simulated                                                      | **Documented, not yet fixed** — see §6                         |
-| 9   | Manifest exists, but no service worker or offline policy                    | Not started (Milestone 6)                                      |
-| 10  | No models, migrations, APIs, storage, Docker or meaningful tests            | Smoke tests added; the rest is the backend milestone           |
-| 11  | Detail screens use `?id=` query parameters                                  | **Documented, not yet fixed** — see §6                         |
-| 12  | PWA icons are SVG-only                                                      | **Documented, not yet fixed** — see §6                         |
+| #   | Finding                                                                     | Status                                                                    |
+| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | Real App Router frontend with a useful repository abstraction               | Confirmed; preserved                                                      |
+| 2   | Next.js 15.1.6 is affected by published advisories                          | **Fixed** — Next 16.3.0, React 19.2.8, lockfile committed                 |
+| 3   | `npm run typecheck` fails in `tailwind.config.ts` (`withAlpha()`)           | **Fixed** — see §4                                                        |
+| 4   | `npm run build` fails during type checking for the same reason              | **Fixed** — production build passes                                       |
+| 5   | Lint script needs migration after the upgrade                               | **Fixed** — ESLint flat config, `next lint` removed in Next 16            |
+| 6   | README claims no component imports mock data; 15 files do                   | **Documented, not yet fixed** — see §6                                    |
+| 7   | `HostelProvider` keeps the role in `localStorage` (demo UI state, not auth) | **Fixed** — resolved server-side from `HostelMembership`, no setter       |
+| 8   | Login/OTP is simulated                                                      | **Fixed** — Better Auth email and password; OTP and role switcher deleted |
+| 9   | Manifest exists, but no service worker or offline policy                    | Not started (Milestone 6)                                                 |
+| 10  | No models, migrations, APIs, storage, Docker or meaningful tests            | Smoke tests added; the rest is the backend milestone                      |
+| 11  | Detail screens use `?id=` query parameters                                  | **Documented, not yet fixed** — see §6                                    |
+| 12  | PWA icons are SVG-only                                                      | **Documented, not yet fixed** — see §6                                    |
 
 ## 3. Dependency upgrade
 
@@ -155,20 +155,31 @@ client-side object and mutates it locally. Every screen reads from it. This cann
 contact with a real multi-user database: it over-fetches, it cannot authorize per record,
 and concurrent writes silently overwrite each other. It is replaced, not ported.
 
-### 6.3 Demo role switching is not authorization
+### 6.3 Demo role switching is not authorization — **fixed**
 
-`HostelProvider` stores `hostelflow.role` in `localStorage`; `RoleSwitcher` changes it
-from the sidebar, More and the login screen. It decides only which navigation and screens
-render. The production role switcher must be deleted and the role derived from the
-authenticated server session and hostel membership. Any retained demo mode must be
-impossible to enable in a production build.
+`HostelProvider` stored `hostelflow.role` in `localStorage` and `RoleSwitcher` changed it
+from the sidebar, More and the login screen, so one line in a device console promoted a
+resident to owner.
 
-### 6.4 Simulated login
+The switcher is deleted. The role is resolved on the server from `HostelMembership` in the
+root layout and passed down as a prop with no setter, so a client component can read it and
+cannot write it. It still decides only which navigation renders: every action behind an
+owner-only control calls `requireOwner()` for itself.
 
-`components/forms/login-form.tsx` fills a hard-coded OTP (`4291`) after a `setTimeout` and
-"signs in" by setting the demo role. There is no credential, no session and no server call.
-This must be replaced with real password authentication for owner and manager, structured
-so a real SMS provider can be added later.
+### 6.4 Simulated login — **fixed**
+
+`components/forms/login-form.tsx` filled a hard-coded OTP (`4291`) after a `setTimeout` and
+"signed in" by setting the demo role. There was no credential, no session and no server
+call.
+
+Replaced with Better Auth email and password against the database. Public sign-up is
+disabled; the first owner comes from `npm run bootstrap:owner` on the server. The phone-OTP
+plugin remains the documented upgrade path when an SMS provider is added.
+
+The authentication boundary is `app/layout.tsx`, which resolves the session against the
+database and redirects before any page renders. `middleware.ts` is a latency optimisation
+only — it checks that a cookie exists, without verifying it, because the edge runtime
+cannot open a database connection.
 
 ### 6.5 Sensitive records addressed by query parameter
 

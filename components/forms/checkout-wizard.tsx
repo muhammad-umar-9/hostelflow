@@ -68,9 +68,14 @@ export function CheckoutWizard({ residentId }: { residentId: string }) {
       setError("Confirm the settlement amount before completing checkout.");
       return;
     }
+    // CLIENT-SIDE ONLY. `role` comes from the server now, so it cannot be edited in
+    // localStorage as it once could — but this branch runs in the browser and the
+    // mutation behind it goes to the in-browser mock repository, so there is no server
+    // check to back it up. When this wizard is wired to a real action, that action must
+    // call requireOwner() itself. See docs/frontend-audit.md.
     if (refund < 0 && role !== "owner") {
       setError(
-        "Deductions exceed the security deposit. Owner approval is required — switch to the Owner role to continue.",
+        "Deductions exceed the security deposit. This needs the owner to approve it.",
       );
       return;
     }

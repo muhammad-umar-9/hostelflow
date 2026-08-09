@@ -99,7 +99,14 @@ COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/prisma ./prisma
 COPY --from=builder --chown=node:node /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder --chown=node:node /app/scripts ./scripts
-COPY --from=builder --chown=node:node /app/lib/generated ./lib/generated
+# The whole of lib/, not only lib/generated.
+#
+# scripts/bootstrap-owner.ts — the ONLY way a fresh deployment gets its first account,
+# since sign-up is disabled server-side — imports ../lib/auth-options. Copying just the
+# generated client made that import ERR_MODULE_NOT_FOUND inside the image, so the very
+# first owner could never be created and there is no other route in. Copying the directory
+# means the next shared module added under lib/ does not silently repeat it.
+COPY --from=builder --chown=node:node /app/lib ./lib
 COPY --from=builder --chown=node:node /app/package.json ./package.json
 
 COPY --chown=node:node docker/entrypoint.sh /usr/local/bin/entrypoint.sh

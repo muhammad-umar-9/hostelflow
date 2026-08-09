@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHostel } from "@/components/providers/hostel-provider";
 import { navForRole } from "./nav-items";
-import { RoleSwitcher } from "./role-switcher";
+import { SignOutButton } from "./sign-out-button";
 import { DemoResetButton } from "./demo-reset-button";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +48,7 @@ export function DesktopNav() {
       </nav>
 
       <div className="mt-auto flex flex-col gap-3 pt-6">
-        <RoleSwitcher />
+        <SignOutButton />
         <DemoResetButton />
       </div>
     </aside>

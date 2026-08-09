@@ -118,24 +118,55 @@ Either way PostgreSQL and MinIO sit on an internal network, unreachable from the
 
 Also see `docs/security.md`, `docs/backup-and-restore.md` and `docs/operations-runbook.md`.
 
-## Demo roles
+## Signing in
 
-The login screen (`/login`) has a demo role selector: **Owner**, **Manager**, **Resident**.
-The role is also switchable at any time from the sidebar on desktop and from **More** on
-mobile, so a live demo never has to log out. Owner and Manager share the staff navigation;
-Resident gets the smaller companion navigation.
+Real email and password, through Better Auth, against the database. There is no public
+sign-up: the first account is created on the server with `npm run bootstrap:owner`, and
+further accounts are created by an owner.
 
-**This is presentation state, not authorization.** The role lives in `localStorage`, the
-OTP is hard-coded, and no server checks anything. Both are removed when real
-authentication lands.
+The role — owner, manager or resident — is resolved server-side from `HostelMembership` on
+every request and passed down for rendering only. It decides which navigation is drawn.
 
-`Reset demo data` (sidebar / More) restores the hostel to its starting state.
+**It does not yet decide what is permitted, because nothing writes to the server yet.**
+Every mutation still runs through the in-browser mock repository, so the owner-only rules
+in the checkout wizard are client-side checks with no server counterpart — `requireOwner()`
+exists in `lib/server/authz.ts` and is currently called by nothing. That is not a hole in a
+live system (there is no live data to reach) but it is the single most important thing to
+get right in `feature/admission-wizard-wiring`: every server action added there must call
+`requireOwner()` / `requireMembership()` for itself, because the button is drawn on a
+machine we do not control.
+
+Until this milestone the login screen accepted a hard-coded OTP (`4291`), which it filled
+in for the visitor, and offered three DEMO ROLE buttons whose choice was stored in
+`localStorage`. Anyone who could load the page could be the owner. Both are gone, and a
+smoke test fails if either string reappears.
+
+`Reset demo data` (sidebar / More) restores the hostel to its starting state while the
+screens are still mock-driven.
+
+## End-to-end tests
+
+`npm run test:e2e` builds the app, starts it, and runs Playwright against the production
+build. The authenticated screens need a database to sign in to:
+
+```bash
+E2E_DATABASE_URL=postgresql://user:pass@host:5432/hostelflow_e2e npm run test:e2e
+```
+
+The suite **migrates, seeds and writes to that database**, so it reads `E2E_DATABASE_URL`
+and deliberately ignores `DATABASE_URL` — the same rule the integration suite follows, for
+the same reason. `scripts/e2e-owner.ts` additionally refuses any URL whose database name
+does not contain `test` or `e2e` as a word.
+
+Without the variable the public checks still run and the authenticated ones **skip loudly**
+rather than reporting as passed. Under CI a missing variable is a hard failure, because a
+skipped suite and a passing suite look identical in the summary line.
 
 ## Routes
 
 | Route                                     | Screen                                                           |
 | ----------------------------------------- | ---------------------------------------------------------------- |
-| `/login`                                  | Splash, phone + OTP, demo role selector                          |
+| `/login`                                  | Splash, email and password sign-in                               |
 | `/dashboard`                              | Owner / manager dashboard, occupancy, collection, attention list |
 | `/rooms`                                  | Rooms grouped by floor, type / vacancy / floor filters           |
 | `/rooms/detail?no=101`                    | Room detail, bed layout, bed action sheet                        |
@@ -157,7 +188,7 @@ authentication lands.
 | `/resident-portal/requests`               | Maintenance requests                                             |
 | `/resident-portal/profile`                | Resident profile (read-only fields)                              |
 | `/settings`                               | Hostel, charges, payment details, permissions, theme             |
-| `/more`                                   | Secondary navigation, role switch, demo reset                    |
+| `/more`                                   | Secondary navigation, log out, demo reset                        |
 | `/notifications`                          | Role-aware notification list                                     |
 
 Detail screens read their record from a query parameter (`?id=`, `?no=`) rather than a
